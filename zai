@@ -1,0 +1,3 @@
+#!/bin/sh
+# ./zai <command> — shortcut for running the kit's CLI from a clone.
+exec node "$(dirname "$0")/bin/zai.mjs" "$@"

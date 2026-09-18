@@ -1,0 +1,229 @@
+# Building an agent
+
+This guide takes you from an idea to a listed agent that buyers can hire. You'll write a trading strategy in one TypeScript file, test it against a local chain in about 10 minutes, then list it on testnet.
+
+## How agents work
+
+An agent has three parts:
+
+| Part | What it is | Where it lives |
+|---|---|---|
+| **Seller** | Your wallet. It lists the agent and receives your fee (up to 10% of profit) on each profitable trade. | A wallet you keep safe |
+| **Operator** | The key your bot signs trades with. It can swap buyers' escrowed funds through approved DEXes, and nothing else: it can't withdraw them. | Your bot's server |
+| **Strategy** | Your code. It decides when to buy and when to sell. | One `.ts` file, run by `./zai run` |
+
+When a buyer hires your agent, their tokens go into escrow in the marketplace contract. Your bot sees the trade, and your strategy decides when to **open** (swap the buyer's base token into the asset) and when to **close** (swap back). On close, the contract measures the result itself and pays out automatically:
+
+- **Profit:** 2% of the profit goes to the protocol, your fee goes to you, and the rest goes to the buyer.
+- **Loss:** the buyer gets everything back and nobody takes a fee.
+
+If your bot never acts, the buyer can reclaim their funds after the deadline they chose.
+
+## Quickstart: run a strategy locally
+
+Everything you need is in the [agent kit](https://github.com/jactheman/zilliqa-ai-agent-kit). You need Node 20.12 or newer, and `anvil` from [Foundry](https://book.getfoundry.sh/getting-started/installation) for the local test chain.
+
+```bash
+git clone https://github.com/jactheman/zilliqa-ai-agent-kit
+cd zilliqa-ai-agent-kit
+npm install
+
+anvil                # terminal 1: a local chain (leave it running)
+./zai dev up         # terminal 2: deploys a test marketplace, mock tokens and a mock DEX
+```
+
+Anvil starts empty every time it restarts, so run `./zai dev up` again after each restart.
+
+**1. Register your agent.** Locally, this signs with a funded test wallet:
+
+```bash
+./zai register --name "MyFirstBot" --fee 5 --new-operator \
+  --description "Buys as soon as it's hired, sells at +5% or -3%." \
+  --strategy "Take-profit" --risk medium
+```
+
+This prints your agent id and a freshly generated operator key. Locally, it also funds that key with gas. The description, strategy and risk are what buyers see on your agent's card (see [Agent details](#agent-details)).
+
+**2. Write your strategy.** Create one from the template:
+
+```bash
+./zai init my-strategy     # creates strategies/my-strategy.ts
+```
+
+**3. Run it** with the operator key from step 1:
+
+```bash
+OPERATOR_KEY=0x... ./zai run --agent 1 --strategy my-strategy
+```
+
+**4. Hire it and move the market.** In another terminal, act as a buyer and push the mock price around, then watch your bot react:
+
+```bash
+./zai dev hire 100 --agent 1    # a test buyer escrows 100 mUSD
+./zai dev price -4%             # the asset drops 4%
+./zai dev price +9%             # and recovers
+./zai status                    # trades and P&L
+```
+
+## Writing a strategy
+
+A strategy is one file that default-exports `defineStrategy(...)` with a `decide` function. The runner calls `decide` on every tick (every 2 seconds by default) for every pending or open trade hired to your agent:
+
+```ts
+import { defineStrategy, param } from "../src/strategy";
+
+const TARGET_BPS = param("TARGET_BPS", 500); // configurable via env, default +5%
+
+export default defineStrategy({
+  name: "my-strategy",
+  describe: () => `sell at +${TARGET_BPS / 100}%`,
+
+  decide(position, market) {
+    if (position.phase === "pending") return { action: "open" };
+    if (position.pnlBps >= TARGET_BPS) return { action: "close", reason: "target hit" };
+    return { action: "wait" };
+  },
+});
+```
+
+### What `decide` receives
+
+`position` is one trade:
+
+| Field | Meaning |
+|---|---|
+| `phase` | `"pending"` (buyer's funds escrowed, you haven't opened yet) or `"open"` (you hold the asset) |
+| `amountIn` | Base tokens the buyer escrowed |
+| `assetAmount` | Asset tokens held (0 while pending) |
+| `value` | What the position is worth in base tokens right now |
+| `pnlBps` | Unrealized P&L in basis points (100 = 1%) |
+| `heldSec` | Seconds since the position was opened |
+| `secsToDeadline` | Seconds until the buyer may reclaim |
+| `baseToken`, `assetToken`, `buyer`, `id` | Identifiers |
+
+`market` holds prices:
+
+| Field | Meaning |
+|---|---|
+| `price` | Latest price of 1 asset in base (1e18-scaled bigint) |
+| `history` | Price samples, oldest first, one per tick, capped at 1,000. Starts empty when the runner starts. |
+| `now` | Chain timestamp |
+
+### What `decide` returns
+
+| Decision | When it's valid | Effect |
+|---|---|---|
+| `{ action: "open" }` | pending | Swap all escrowed base into the asset |
+| `{ action: "close", reason }` | open | Swap back to base and settle |
+| `{ action: "wait", note? }` | always | Do nothing this tick. The note is logged when it changes. |
+
+### Helpers in `src/strategy.ts`
+
+- `param(name, fallback)`: reads a numeric parameter from env, so one strategy file can run with different settings.
+- `sma(history, n)`: simple moving average of the last `n` prices, or `null` while there's too little history.
+- `diffBps(a, b)`: `(a − b) / b` in basis points.
+
+[`strategies/mean-reversion.ts`](../strategies/mean-reversion.ts) shows a strategy that uses price history.
+
+### What the runner does for you
+
+These rules apply whatever your strategy returns:
+
+- **Slippage limit:** every swap sets a minimum output 1% below the quote (`SLIPPAGE_BPS`).
+- **No late opens:** a pending trade isn't opened within 120 seconds of its deadline (`DEADLINE_BUFFER_SEC`).
+- **Always closes before the deadline:** an open trade is closed before the buyer could reclaim it, so buyers get settled in base tokens, not handed back the asset.
+- **Startup checks:** the runner refuses to start if `OPERATOR_KEY` isn't your agent's operator, and warns if the agent is paused.
+- **Error isolation:** an error on one trade is logged and doesn't stop the others.
+
+### Tips
+
+- Keep `decide` fast and free of side effects. If you need external data (an API, an indexer), cache it outside `decide` and refresh it on your own timer.
+- The runner keeps state in memory, so a restart clears price history and hold times. Prefer strategies that recover sensibly from a cold start.
+- `--strategy` takes a name from `strategies/` or a path to any file (`--strategy ./bots/v2.ts`). Keep the `../src/strategy` import pointing at the kit's `src/strategy.ts`.
+- Use `--poll 500` locally for faster feedback (the default is 2000 ms).
+
+## Agent details
+
+Your agent's card shows a description, a strategy label, a risk level and links, next to the on-chain name and fee. The contract stores these as a `metadataURI` pointing to a small JSON document:
+
+```json
+{
+  "description": "Buys 3% dips below the 20-tick average and sells at the mean.",
+  "strategy": "Mean reversion",
+  "risk": "medium",
+  "links": {
+    "source": "https://github.com/you/dip-buyer",
+    "website": "https://example.com",
+    "twitter": "https://x.com/you"
+  }
+}
+```
+
+All fields are optional. Limits: description 280 characters, strategy 60, links must be `http(s)` and at most 200 characters, document at most 16 KB. Unknown fields are ignored. The `name` shown is always the on-chain name, not anything in this file.
+
+You can store this document in three ways:
+
+| URI | Hosting | Can it change? |
+|---|---|---|
+| `data:application/json,{…}` | None: stored on-chain (up to 2,048 bytes) | Only through `setAgentMetadata` |
+| `ipfs://<cid>` | Pin it on IPFS | No: new content means a new CID |
+| `https://…/agent.json` | Your server, which must allow CORS | Yes, whenever you edit the file |
+
+The CLI and the web form use the on-chain `data:` option unless you give them a URI. For buyers, `data:` and `ipfs://` details can't change without a transaction or a new CID, which makes them more trustworthy than an `https://` file.
+
+```bash
+# set or edit details with flags (edits on top of what's there)
+./zai update 1 --description "…" --strategy "Mean reversion" --risk low --source https://github.com/you/bot
+
+# or from a JSON file (stored on-chain), or point at a hosted document
+./zai update 1 --metadata ./agent.json
+./zai update 1 --metadata ipfs://bafy…
+
+# see exactly what buyers will see
+./zai show 1
+```
+
+Once the marketplace is live you can also use **Edit** on your agent's card in the web app.
+
+## Managing your agent
+
+```bash
+./zai agents --mine                   # your agents
+./zai update 1 --fee 3                # new trades only; existing trades keep their fee
+./zai update 1 --operator 0xNEW       # rotate the bot key (e.g. if a server was compromised)
+./zai update 1 --pause                # stop receiving new trades
+./zai update 1 --resume
+```
+
+Once the marketplace is live, you can also list, edit, pause and resume agents from the web app.
+
+## Going to testnet
+
+Once the marketplace is deployed on Zilliqa EVM testnet, `git pull` the kit to get its address. Then:
+
+1. Put your keys in `.env` (it's gitignored; see `.env.example`):
+   ```bash
+   NETWORK=testnet
+   SELLER_KEY=0x...      # your wallet
+   ```
+2. Fund your seller wallet with testnet ZIL from https://faucet.testnet.zilliqa.com, then register:
+   ```bash
+   ./zai register --name "MyBot" --fee 5 --new-operator --description "…" --risk medium
+   ```
+3. Send the new operator address some ZIL. It pays gas for every open and close.
+4. Run the bot somewhere always-on (a VPS, Fly.io, Railway), with the operator key in the host's secret store:
+   ```bash
+   NETWORK=testnet OPERATOR_KEY=<secret> ./zai run --agent <id> --strategy my-strategy
+   ```
+
+### Key safety
+
+- **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
+- **If the operator key leaks,** rotate it right away with `update <id> --operator <new address>`.
+- **The marketplace owner can pause any agent** that misbehaves.
+
+## What buyers see
+
+Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Next to those they see your [agent details](#agent-details).
+
+Neither the name nor the details are verified. The web app refuses a name that's already taken (ignoring case), but the contract itself doesn't check. Linking your strategy's source code is the best way to earn buyers' trust.
