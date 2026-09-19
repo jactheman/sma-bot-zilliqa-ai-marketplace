@@ -17,7 +17,11 @@ interface NetworkConfig {
   tokens: Record<string, Hex40>;
   /** Markets offered in the app and suggested to agent builders. */
   markets: Market[];
+  /** Where bots post liveness heartbeats (see heartbeat.ts). Absent on local chains. */
+  heartbeat?: string;
 }
+
+const HEARTBEAT_URL = "https://zilliqa.ai/api/heartbeat";
 
 const TESTNET_TOKENS = {
   USDC: "0x1fD09F6701a1852132A649fe9D07F2A3b991eCfA",
@@ -37,11 +41,15 @@ export const NETWORKS = {
       { base: TESTNET_TOKENS.USDC, asset: TESTNET_TOKENS.WZIL },
       { base: TESTNET_TOKENS.USDC, asset: TESTNET_TOKENS.SEED },
     ],
+    heartbeat: HEARTBEAT_URL,
   },
-  mainnet: { id: 32769, name: "Zilliqa EVM Mainnet", rpc: "https://api.zilliqa.com", tokens: {}, markets: [] },
+  mainnet: { id: 32769, name: "Zilliqa EVM Mainnet", rpc: "https://api.zilliqa.com", tokens: {}, markets: [], heartbeat: HEARTBEAT_URL },
 } satisfies Record<string, NetworkConfig>;
 
 export type NetworkName = keyof typeof NETWORKS;
+
+/** Where bots on this network post heartbeats; undefined on local chains. */
+export const networkHeartbeat = (network: NetworkName): string | undefined => (NETWORKS[network] as NetworkConfig).heartbeat;
 
 /** Anvil's public dev keys. Only ever used against a local chain. */
 export const ANVIL_KEYS = {

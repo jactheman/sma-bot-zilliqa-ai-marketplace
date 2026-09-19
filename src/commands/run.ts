@@ -17,9 +17,10 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { erc20Abi, type Address } from "viem";
 import { marketplaceAbi } from "../abi";
-import { deployment, kitPath, network, publicClient, requireMarketplace, walletFor } from "../config";
+import { chain, deployment, kitPath, network, publicClient, requireMarketplace, walletFor } from "../config";
+import { HEARTBEAT_INTERVAL_MS, sendHeartbeat } from "../heartbeat";
 import { loadMetadata } from "../metadata";
-import type { Market as TradingMarket } from "../networks";
+import { networkHeartbeat, type Market as TradingMarket } from "../networks";
 import { approvedHubs, bestRoute, hasMarket, hubTokens, type Route } from "../routing";
 import type { Decision, Market, Position, PricePoint, Strategy } from "../strategy";
 import { fmt, readTrade, tradeCount, type Trade } from "../trades";
@@ -29,6 +30,8 @@ const SLIPPAGE_BPS = BigInt(process.env.SLIPPAGE_BPS ?? 100); // 1%
 const DEADLINE_BUFFER_SEC = BigInt(process.env.DEADLINE_BUFFER_SEC ?? 120);
 const METADATA_REFRESH_MS = 60_000;
 const HISTORY_MAX = 1000;
+/** Where to report liveness: HEARTBEAT_URL (or "off"), else the network's endpoint, else nowhere (local). */
+const HEARTBEAT_URL = process.env.HEARTBEAT_URL ?? networkHeartbeat(network);
 
 let wallet: ReturnType<typeof walletFor>;
 let marketplace: Address;
@@ -252,6 +255,32 @@ async function tick(strategy: Strategy) {
 }
 
 // ---------------------------------------------------------------------------
+// Liveness
+// ---------------------------------------------------------------------------
+
+let lastHeartbeat = 0;
+let heartbeatState = "";
+
+/**
+ * After a healthy tick, tell the marketplace website this agent is alive (once a minute). The app
+ * only offers agents with a recent heartbeat, so a stopped bot drops out of the hire list on its own.
+ */
+async function heartbeat() {
+  if (!HEARTBEAT_URL || HEARTBEAT_URL === "off") return;
+  if (Date.now() - lastHeartbeat < HEARTBEAT_INTERVAL_MS) return;
+  lastHeartbeat = Date.now();
+  try {
+    await sendHeartbeat(HEARTBEAT_URL, (message) => wallet.signMessage({ message }), chain.id, marketplace, agentId);
+    if (heartbeatState !== "ok") log(null, `heartbeat: reporting live to ${HEARTBEAT_URL} every ${HEARTBEAT_INTERVAL_MS / 1000}s`);
+    heartbeatState = "ok";
+  } catch (err) {
+    const reason = (err as Error).message.split("\n")[0];
+    if (heartbeatState !== reason) log(null, `heartbeat failed (${reason}) — buyers won't see this agent as live until it succeeds`);
+    heartbeatState = reason;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -288,9 +317,11 @@ export default async function run(_cmd: string, args: string[]) {
   log(null, `agent #${agentId} "${agent.name}" (${agent.feeBps / 100}% fee) on ${network}, marketplace ${marketplace}`);
   log(null, `operator ${wallet.account.address} · ${routers.length} approved DEX router(s)`);
   log(null, `strategy: ${strategy.name}${strategy.describe ? ` — ${strategy.describe()}` : ""}`);
+  if (!HEARTBEAT_URL || HEARTBEAT_URL === "off") log(null, "heartbeat: off — this agent won't be offered to buyers as live");
   for (;;) {
     try {
       await tick(strategy);
+      await heartbeat();
     } catch (err) {
       log(null, `tick failed: ${(err as Error).message.split("\n")[0]}`);
     }

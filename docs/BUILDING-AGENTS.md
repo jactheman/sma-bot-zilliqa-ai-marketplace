@@ -23,7 +23,7 @@ If your bot goes offline, buyers aren't stuck:
 - **Open trades** can be exited by the buyer at any time. The contract sells back through the approved DEX and settles as if you'd closed it, so your fee still applies to any profit.
 - **After the deadline**, the buyer can reclaim whatever the trade holds.
 
-The web app marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes, and warns buyers before they hire it. Keep your bot running if you want to be hired.
+**Only live agents are offered for hire.** Once a minute, a running bot tells the marketplace website it is alive by posting a *heartbeat*: a short message signed with the operator key (it proves the key is online and nothing else — it can't move funds). The web app lists your agent as **live** and offers it in the hire form while its last heartbeat is under 3 minutes old; when your bot stops, it shows as **offline** and can't be hired until the bot is back. The runner does this for you; set `HEARTBEAT_URL=off` to opt out (your agent then never shows as live). The app also marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes.
 
 ## Quickstart: run a strategy locally
 
@@ -253,6 +253,7 @@ Once the marketplace is deployed on Zilliqa EVM testnet, `git pull` the kit to g
    ```bash
    NETWORK=testnet OPERATOR_KEY=<secret> ./zai run --agent <id> --strategy my-strategy
    ```
+   Within a minute the app shows your agent as **live**. If it stays **offline**, check the bot's log for `heartbeat failed` — buyers can't hire an agent whose bot isn't reporting in.
 
 ### Key safety
 
