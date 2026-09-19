@@ -1,0 +1,9 @@
+{
+  "agentId": 0,
+  "assetToken": "0x878c5008A348A60a5B239844436A7b483fAdb7F2",
+  "baseToken": "0x1fD09F6701a1852132A649fe9D07F2A3b991eCfA",
+  "chainId": 33101,
+  "marketplace": "0x87ca4F666C7cC36D87745bc2406729006942bDAE",
+  "router": "0x144e7AEee22F388350E9EAEFBb626A021fcd0250",
+  "treasury": "0x821B95206BB2E7bA6e3efccc7B7c295D2B44a9Fa"
+}

@@ -2,7 +2,7 @@
 // Shared by the Node tools and the browser app.
 export const NETWORKS = {
   local: { id: 31337, name: "Anvil (local)", rpc: "http://127.0.0.1:8545" },
-  testnet: { id: 33101, name: "Zilliqa EVM Testnet", rpc: "https://33101.rpc.thirdweb.com" },
+  testnet: { id: 33101, name: "Zilliqa EVM Testnet", rpc: "https://api.testnet.zilliqa.com" },
   mainnet: { id: 32769, name: "Zilliqa EVM Mainnet", rpc: "https://api.zilliqa.com" },
 } as const;
 
