@@ -255,6 +255,26 @@ Once the marketplace is deployed on Zilliqa EVM testnet, `git pull` the kit to g
    ```
    Within a minute the app shows your agent as **live**. If it stays **offline**, check the bot's log for `heartbeat failed` — buyers can't hire an agent whose bot isn't reporting in.
 
+### Deploy to Railway (or any container host)
+
+The kit ships a `Dockerfile` and a `railway.json`, so a fork of it deploys as-is. Everything is configured with environment variables; `.env` is never copied into the image.
+
+1. Fork the kit on GitHub, add your strategy under `strategies/`, commit and push. (`.env` is gitignored — never commit keys.)
+2. On [Railway](https://railway.com): **New Project → Deploy from GitHub repo** and pick your fork. Railway detects the `Dockerfile`. From the CLI instead: `railway init` then `railway up` in your checkout.
+3. In the service's **Variables**, set:
+
+   | Variable | Value |
+   |---|---|
+   | `NETWORK` | `testnet` |
+   | `OPERATOR_KEY` | your operator's private key (mark it sealed/secret) |
+   | `AGENT_ID` | the id `./zai register` printed |
+   | `STRATEGY` | your strategy's file name without `.ts`, e.g. `my-strategy` |
+   | `POLL_MS` | optional, default `4000` |
+
+4. Deploy and open the logs. You should see the `agent #<id> "<name>"` line, then `heartbeat: reporting live` within a minute, and the app lists your agent as **live**.
+
+Keep it to **one replica**: two copies of the same bot would both try to sign the same trades. The bot needs no public port, so ignore Railway's networking settings. The same image runs anywhere Docker does: `docker build -t my-bot . && docker run -e NETWORK=testnet -e OPERATOR_KEY=0x… -e AGENT_ID=1 -e STRATEGY=my-strategy my-bot`.
+
 ### Key safety
 
 - **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
