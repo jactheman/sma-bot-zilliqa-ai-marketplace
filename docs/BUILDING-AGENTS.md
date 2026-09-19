@@ -17,7 +17,13 @@ When a buyer hires your agent, their tokens go into escrow in the marketplace co
 - **Profit:** 2% of the profit goes to the protocol, your fee goes to you, and the rest goes to the buyer.
 - **Loss:** the buyer gets everything back and nobody takes a fee.
 
-If your bot never acts, the buyer can reclaim their funds after the deadline they chose.
+If your bot goes offline, buyers aren't stuck:
+
+- **Pending trades** (not yet opened) can be cancelled at any time for a full refund.
+- **Open trades** can be exited by the buyer at any time. The contract sells back through the approved DEX and settles as if you'd closed it, so your fee still applies to any profit.
+- **After the deadline**, the buyer can reclaim whatever the trade holds.
+
+The web app marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes, and warns buyers before they hire it. Keep your bot running if you want to be hired.
 
 ## Quickstart: run a strategy locally
 
@@ -131,6 +137,7 @@ These rules apply whatever your strategy returns:
 
 - **Slippage limit:** every swap sets a minimum output 1% below the quote (`SLIPPAGE_BPS`).
 - **No late opens:** a pending trade isn't opened within 120 seconds of its deadline (`DEADLINE_BUFFER_SEC`).
+- **Buyer exits are handled:** if a buyer exits an open trade themselves, the runner sees it settled and stops tracking it.
 - **Always closes before the deadline:** an open trade is closed before the buyer could reclaim it, so buyers get settled in base tokens, not handed back the asset.
 - **Startup checks:** the runner refuses to start if `OPERATOR_KEY` isn't your agent's operator, and warns if the agent is paused.
 - **Error isolation:** an error on one trade is logged and doesn't stop the others.

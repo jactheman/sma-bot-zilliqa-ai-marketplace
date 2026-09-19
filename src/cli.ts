@@ -32,7 +32,7 @@ Local testing (needs \`anvil\` running)
   dev up                    deploy a local marketplace with mock tokens and a mock DEX
   dev hire <amount> [--agent <id>] [--duration <secs>]    hire an agent as a test buyer
   dev price [+5% | -3% | 0.021]                           show or move the mock price
-  dev cancel <tradeId> | dev reclaim <tradeId>
+  dev cancel <tradeId> | dev exit <tradeId> | dev reclaim <tradeId>
   status                    agents, trades, P&L
 
 Options

@@ -15,14 +15,15 @@ export interface Trade {
   assetAmount: bigint;
   amountOut: bigint;
   deadline: bigint;
+  createdAt: bigint;
   feeBps: number;
   status: StatusName;
 }
 
 export async function readTrade(id: bigint): Promise<Trade> {
-  const [buyer, agentId, baseToken, assetToken, amountIn, assetAmount, amountOut, deadline, feeBps, status] =
+  const [buyer, agentId, baseToken, assetToken, amountIn, assetAmount, amountOut, deadline, createdAt, feeBps, status] =
     await publicClient.readContract({ address: deployment().marketplace, abi: marketplaceAbi, functionName: "trades", args: [id] });
-  return { id, buyer, agentId, baseToken, assetToken, amountIn, assetAmount, amountOut, deadline, feeBps, status: STATUS[status] };
+  return { id, buyer, agentId, baseToken, assetToken, amountIn, assetAmount, amountOut, deadline, createdAt, feeBps, status: STATUS[status] };
 }
 
 export const tradeCount = () =>

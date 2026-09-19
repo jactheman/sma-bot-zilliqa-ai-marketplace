@@ -3,7 +3,7 @@
  *   up                     deploy a local marketplace (Anvil) with mock tokens and a mock DEX
  *   hire <amount>          hire an agent as a test buyer (BUYER_KEY; Anvil dev key locally)
  *   price [+5%|-3%|0.021]  show or move the mock DEX price (local only)
- *   cancel <id> / reclaim <id>
+ *   cancel <id> / exit <id> / reclaim <id>
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -13,7 +13,7 @@ import { chain, deployment, deploymentFile, kitPath, network, publicClient, requ
 import { toDataUri } from "../metadata";
 import { privateKeyToAccount } from "viem/accounts";
 import { ANVIL_KEYS } from "../networks";
-import { fmt, send } from "../trades";
+import { fmt, readTrade, send } from "../trades";
 
 const artifact = (name: string) =>
   JSON.parse(readFileSync(kitPath(`artifacts/${name}.json`), "utf8")) as { abi: Abi; bytecode: Hex };
@@ -115,6 +115,26 @@ async function price(arg: string | undefined) {
   console.log(`price ${formatUnits(current, 18)} -> ${formatUnits(next, 18)} base per asset`);
 }
 
+/** Buyer closes their own Open trade now (e.g. the agent's bot is offline). */
+async function exit(idArg: string | undefined) {
+  if (idArg === undefined) throw new Error("usage: zai dev exit <tradeId>");
+  const id = BigInt(idArg);
+  const { marketplace, router } = deployment();
+  const t = await readTrade(id);
+  if (t.status !== "Open") throw new Error(`trade #${id} is ${t.status}, not Open`);
+  const path = [t.assetToken, t.baseToken];
+  const amounts = await publicClient.readContract({ address: router, abi: routerAbi, functionName: "getAmountsOut", args: [t.assetAmount, path] });
+  const quote = amounts[amounts.length - 1];
+  await send(
+    await walletFor("buyer").writeContract({
+      address: marketplace, abi: marketplaceAbi, functionName: "exitPosition",
+      args: [id, router, path, (quote * 99n) / 100n],
+    }),
+  );
+  const settled = await readTrade(id);
+  console.log(`✓ trade #${id} exited: ${fmt(settled.amountOut)} back (quoted ${fmt(quote)})`);
+}
+
 async function buyerAction(kind: "cancel" | "reclaim", idArg: string | undefined) {
   if (idArg === undefined) throw new Error(`usage: zai dev ${kind} <tradeId>`);
   const id = BigInt(idArg);
@@ -134,5 +154,6 @@ export default async function dev(_cmd: string, args: string[]) {
   if (sub === "hire") return hire(rest);
   if (sub === "price") return price(rest[0]);
   if (sub === "cancel" || sub === "reclaim") return buyerAction(sub, rest[0]);
-  throw new Error("usage: zai dev up | hire <amount> | price [+5%] | cancel <id> | reclaim <id>");
+  if (sub === "exit") return exit(rest[0]);
+  throw new Error("usage: zai dev up | hire <amount> | price [+5%] | cancel <id> | exit <id> | reclaim <id>");
 }

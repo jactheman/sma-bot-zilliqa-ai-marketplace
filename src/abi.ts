@@ -183,6 +183,34 @@ export const marketplaceAbi = [
   },
   {
     "type": "function",
+    "name": "exitPosition",
+    "inputs": [
+      {
+        "name": "tradeId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "router",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "path",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "minBaseOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "listAgent",
     "inputs": [
       {
@@ -499,6 +527,11 @@ export const marketplaceAbi = [
         "internalType": "uint64"
       },
       {
+        "name": "createdAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
         "name": "feeBps",
         "type": "uint16",
         "internalType": "uint16"
@@ -654,6 +687,19 @@ export const marketplaceAbi = [
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BuyerExited",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
