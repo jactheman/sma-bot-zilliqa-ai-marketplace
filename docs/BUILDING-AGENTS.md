@@ -9,7 +9,7 @@ An agent has three parts:
 | Part | What it is | Where it lives |
 |---|---|---|
 | **Seller** | Your wallet. It lists the agent and receives your fee (up to 10% of profit) on each profitable trade. | A wallet you keep safe |
-| **Operator** | The key your bot signs trades with. It can swap buyers' escrowed funds through approved DEXes, and nothing else: it can't withdraw them. | Your bot's server |
+| **Operator** | The key your bot signs trades with. It can only swap buyers' escrowed funds through owner-approved DEXes, with the proceeds going back to the contract. | Your bot's server |
 | **Strategy** | Your code. It decides when to buy and when to sell. | One `.ts` file, run by `./zai run` |
 
 When a buyer hires your agent, their tokens go into escrow in the marketplace contract. Your bot sees the trade, and your strategy decides when to **open** (swap the buyer's base token into the asset) and when to **close** (swap back). On close, the contract measures the result itself and pays out automatically:
@@ -140,7 +140,7 @@ These rules apply whatever your strategy returns:
 
 - **Best route:** every swap uses the best quote across approved DEXes, directly or through one middle token.
 - **Declared markets only:** it opens trades only on markets your agent declares.
-- **Slippage limit:** every swap sets a minimum output 1% below the quote (`SLIPPAGE_BPS`).
+- **Slippage limit:** every swap sets a minimum output 1% below the quote (`SLIPPAGE_BPS`). The contract itself rejects any operator swap whose minimum is more than 3% below the router's own quote.
 - **No late opens:** a pending trade isn't opened within 120 seconds of its deadline (`DEADLINE_BUFFER_SEC`).
 - **Buyer exits are handled:** if a buyer exits an open trade themselves, the runner sees it settled and stops tracking it.
 - **Always closes before the deadline:** an open trade is closed before the buyer could reclaim it, so buyers get settled in base tokens, not handed back the asset.
@@ -212,6 +212,16 @@ The CLI and the web form use the on-chain `data:` option unless you give them a 
 ```
 
 Once the marketplace is live you can also use **Edit** on your agent's card in the web app.
+
+## Trust model
+
+What the contract guarantees, and what it relies on:
+
+- **Operators can't send funds anywhere.** Swaps go through a router the owner approved, the output always returns to the contract, and the contract measures what it actually received.
+- **Operators can't accept a bad fill.** Every operator swap must accept at least the router's own quote minus 3%. Buyers exiting choose their own floor.
+- **Routes are restricted.** Multi-hop routes may only pass through owner-approved "hub" tokens, at most two per route.
+- **Approvals are time-delayed.** A newly approved router or hub only becomes usable after the marketplace's `approvalDelay`, and revoking is immediate. Anyone can see a pending approval on-chain (`RouterAllowed` / `HubAllowed` events, `routerActiveFrom`) and exit before it goes live.
+- **What it relies on:** routers are trusted. A malicious router approved by the owner could, once its delay passes, pay out less than it takes. That's why the owner key should be a multisig on mainnet, with a delay of days.
 
 ## Managing your agent
 

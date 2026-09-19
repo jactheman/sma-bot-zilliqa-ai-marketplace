@@ -4,7 +4,7 @@
  * same way: try every approved router, directly and through each "hub" token, keep the best.
  */
 import type { Address } from "viem";
-import { routerAbi } from "./abi";
+import { marketplaceAbi, routerAbi } from "./abi";
 import type { Market } from "./networks";
 
 export interface Route {
@@ -26,6 +26,20 @@ export function hubTokens(markets: Market[]): Address[] {
   const seen = new Map<string, Address>();
   for (const m of markets) for (const t of [m.base, m.asset]) seen.set(t.toLowerCase(), t as Address);
   return [...seen.values()];
+}
+
+/**
+ * The subset of `candidates` the marketplace allows multi-hop paths through (owner-approved and
+ * past the approval delay). Routing through anything else would revert on-chain.
+ */
+export async function approvedHubs(client: Reader, marketplace: Address, candidates: Address[]): Promise<Address[]> {
+  const flags = await Promise.all(
+    candidates.map((t) =>
+      (client.readContract({ address: marketplace, abi: marketplaceAbi, functionName: "allowedHubs", args: [t] }) as Promise<boolean>)
+        .catch(() => false),
+    ),
+  );
+  return candidates.filter((_, i) => flags[i]);
 }
 
 /** Candidate paths: direct, then one hop through each hub. */

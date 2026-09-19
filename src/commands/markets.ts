@@ -2,12 +2,12 @@
 import { erc20Abi, formatUnits } from "viem";
 import { deployment, network, publicClient, requireMarketplace } from "../config";
 import { formatMarket, symbolOf } from "../markets";
-import { bestRoute, hubTokens } from "../routing";
+import { approvedHubs, bestRoute, hubTokens } from "../routing";
 
 export default async function markets() {
   await requireMarketplace();
   const d = deployment();
-  const hubs = hubTokens(d.markets);
+  const hubs = await approvedHubs(publicClient, d.marketplace, hubTokens(d.markets));
   const rows = [];
   for (const m of d.markets) {
     const [aDec, bDec] = await Promise.all([

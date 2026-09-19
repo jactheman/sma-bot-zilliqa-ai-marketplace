@@ -20,7 +20,7 @@ import { marketplaceAbi } from "../abi";
 import { deployment, kitPath, network, publicClient, requireMarketplace, walletFor } from "../config";
 import { loadMetadata } from "../metadata";
 import type { Market as TradingMarket } from "../networks";
-import { bestRoute, hasMarket, hubTokens, type Route } from "../routing";
+import { approvedHubs, bestRoute, hasMarket, hubTokens, type Route } from "../routing";
 import type { Decision, Market, Position, PricePoint, Strategy } from "../strategy";
 import { fmt, readTrade, tradeCount, type Trade } from "../trades";
 
@@ -47,6 +47,8 @@ let scanned = 0n;
 /** Markets this agent trades: from its details, else the marketplace default pair. */
 let agentMarkets: TradingMarket[] = [];
 let metadataLoadedAt = 0;
+/** Hub tokens the marketplace currently allows multi-hop routes through (refreshed with markets). */
+let allowedHubList: Address[] = [];
 
 /** "WZIL/USDC" when the tokens are known, else shortened addresses. */
 const symbol = (a: string) => Object.entries(tokenNames).find(([, t]) => t.toLowerCase() === a.toLowerCase())?.[0] ?? `${a.slice(0, 6)}…`;
@@ -73,7 +75,7 @@ async function loadStrategy(spec: string): Promise<Strategy> {
 // Chain helpers
 // ---------------------------------------------------------------------------
 
-const hubs = () => hubTokens([...offeredMarkets, ...agentMarkets]);
+const hubs = () => allowedHubList;
 
 /** Best route across approved routers (direct or via a hub token); throws if there is none. */
 async function route(from: Address, to: Address, amountIn: bigint): Promise<Route> {
@@ -130,6 +132,7 @@ async function refreshMarkets() {
     const next = meta?.markets?.length ? meta.markets : [offeredMarkets[0]];
     const changed = JSON.stringify(next) !== JSON.stringify(agentMarkets);
     agentMarkets = next;
+    allowedHubList = await approvedHubs(publicClient, marketplace, hubTokens([...offeredMarkets, ...agentMarkets]));
     if (changed) log(null, `trading ${agentMarkets.length} market(s): ${agentMarkets.map(marketName).join(", ")}`);
   } catch (err) {
     if (!agentMarkets.length) agentMarkets = [offeredMarkets[0]];

@@ -7,7 +7,7 @@ import { marketplaceAbi } from "../abi";
 import { deployment, network, publicClient, requireMarketplace, walletFor } from "../config";
 import { checkMetadataUri, isEmptyMetadata, loadMetadata, sanitizeMetadata, toDataUri, type AgentMetadata } from "../metadata";
 import { formatMarket, parseMarket } from "../markets";
-import { bestRoute, hubTokens } from "../routing";
+import { approvedHubs, bestRoute, hubTokens } from "../routing";
 import { agentCount, readAgent, send } from "../trades";
 
 const OPTIONS = {
@@ -95,7 +95,7 @@ async function metadataFromArgs(opts: Opts, current?: AgentMetadata | null): Pro
 /** Warn about declared markets no approved DEX can route (the bot couldn't trade them). */
 async function checkMarketsRoutable(markets: NonNullable<AgentMetadata["markets"]>) {
   const d = deployment();
-  const hubs = hubTokens([...d.markets, ...markets]);
+  const hubs = await approvedHubs(publicClient, d.marketplace, hubTokens([...d.markets, ...markets]));
   for (const m of markets) {
     const r = await bestRoute(publicClient, d.routers, m.base, m.asset, 10n ** 15n, hubs);
     if (!r) console.log(`warning: no DEX route for ${formatMarket(m)} — buyers could hire you on it but your bot couldn't trade it`);
