@@ -13,6 +13,8 @@ import { chain, deployment, deploymentFile, kitPath, network, publicClient, requ
 import { toDataUri } from "../metadata";
 import { privateKeyToAccount } from "viem/accounts";
 import { ANVIL_KEYS } from "../networks";
+import { formatMarket, parseMarket, symbolOf } from "../markets";
+import { bestRoute, hubTokens } from "../routing";
 import { fmt, readTrade, send } from "../trades";
 
 const artifact = (name: string) =>
@@ -51,8 +53,11 @@ async function up() {
   console.log("deploying mock tokens, mock DEX and marketplace…");
   const usd = await deploy("MockERC20", ["Mock USD", "mUSD"]);
   const zil = await deploy("MockERC20", ["Mock ZIL", "mZIL"]);
+  const seed = await deploy("MockERC20", ["Mock SEED", "mSEED"]);
   const router = await deploy("MockRouter", []);
   await call(router, routerAbi, "setRate", [zil, usd, parseUnits("0.02", 18)]);
+  // mSEED only trades against mZIL, like SEED on testnet, so mSEED/mUSD needs a two-hop route.
+  await call(router, routerAbi, "setRate", [seed, zil, parseUnits("0.8", 18)]);
   const marketplace = await deploy("Marketplace", [deployer.account.address]);
   await call(marketplace, marketplaceAbi, "setRouter", [router, true]);
   await call(usd, mockErc20Abi, "mint", [buyer, parseUnits("10000", 18)]);
@@ -65,10 +70,15 @@ async function up() {
   );
   const [ev] = parseEventLogs({ abi: marketplaceAbi, eventName: "AgentListed", logs: receipt.logs });
 
-  const out = { chainId: chain.id, marketplace, router, baseToken: usd, assetToken: zil, agentId: Number(ev.args.id) };
+  const out = {
+    chainId: chain.id, marketplace, router, baseToken: usd, assetToken: zil, agentId: Number(ev.args.id),
+    tokens: { mUSD: usd, mZIL: zil, mSEED: seed },
+    markets: [{ base: usd, asset: zil }, { base: usd, asset: seed }],
+  };
   writeFileSync(deploymentFile(), JSON.stringify(out, null, 2) + "\n");
   console.log(`✓ local marketplace ready at ${marketplace}`);
   console.log(`  demo agent #${out.agentId} "MomentumBot" (run it: ./zai run --agent ${out.agentId})`);
+  console.log("  markets: mZIL/mUSD, mSEED/mUSD (via mZIL)");
   console.log(`  test buyer ${buyer} has 10,000 mUSD`);
   console.log(`  saved ${deploymentFile().replace(kitPath(""), "")}`);
   console.log("\nNext: ./zai register --name MyBot --fee 5 --new-operator");
@@ -77,9 +87,10 @@ async function up() {
 async function hire(args: string[]) {
   const { values, positionals } = parseArgs({
     args, allowPositionals: true,
-    options: { agent: { type: "string" }, duration: { type: "string" } },
+    options: { agent: { type: "string" }, duration: { type: "string" }, market: { type: "string" } },
   });
-  const { marketplace, baseToken, assetToken } = deployment();
+  const { marketplace } = deployment();
+  const { base: baseToken, asset: assetToken } = values.market ? parseMarket(values.market) : deployment().markets[0];
   const agentId = BigInt(values.agent ?? deployment().agentId);
   const amount = parseUnits(positionals[0] ?? "100", 18);
   const duration = BigInt(values.duration ?? 3600);
@@ -99,7 +110,7 @@ async function hire(args: string[]) {
     }),
   );
   const [ev] = parseEventLogs({ abi: marketplaceAbi, eventName: "TradeProposed", logs: receipt.logs });
-  console.log(`✓ trade #${ev.args.id}: ${fmt(ev.args.amountIn)} escrowed for agent #${agentId}, deadline in ${duration}s`);
+  console.log(`✓ trade #${ev.args.id}: ${fmt(ev.args.amountIn)} ${symbolOf(baseToken)} escrowed for agent #${agentId} on ${formatMarket({ base: baseToken, asset: assetToken })}, deadline in ${duration}s`);
 }
 
 async function price(arg: string | undefined) {
@@ -119,16 +130,16 @@ async function price(arg: string | undefined) {
 async function exit(idArg: string | undefined) {
   if (idArg === undefined) throw new Error("usage: zai dev exit <tradeId>");
   const id = BigInt(idArg);
-  const { marketplace, router } = deployment();
+  const d = deployment();
   const t = await readTrade(id);
   if (t.status !== "Open") throw new Error(`trade #${id} is ${t.status}, not Open`);
-  const path = [t.assetToken, t.baseToken];
-  const amounts = await publicClient.readContract({ address: router, abi: routerAbi, functionName: "getAmountsOut", args: [t.assetAmount, path] });
-  const quote = amounts[amounts.length - 1];
+  const r = await bestRoute(publicClient, d.routers, t.assetToken, t.baseToken, t.assetAmount, hubTokens(d.markets));
+  if (!r) throw new Error("no DEX route to sell this position right now");
+  const quote = r.amountOut;
   await send(
     await walletFor("buyer").writeContract({
-      address: marketplace, abi: marketplaceAbi, functionName: "exitPosition",
-      args: [id, router, path, (quote * 99n) / 100n],
+      address: d.marketplace, abi: marketplaceAbi, functionName: "exitPosition",
+      args: [id, r.router, r.path, (quote * 99n) / 100n],
     }),
   );
   const settled = await readTrade(id);

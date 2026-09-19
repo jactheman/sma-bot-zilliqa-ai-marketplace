@@ -6,6 +6,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { marketplaceAbi } from "../abi";
 import { deployment, network, publicClient, requireMarketplace, walletFor } from "../config";
 import { checkMetadataUri, isEmptyMetadata, loadMetadata, sanitizeMetadata, toDataUri, type AgentMetadata } from "../metadata";
+import { formatMarket, parseMarket } from "../markets";
+import { bestRoute, hubTokens } from "../routing";
 import { agentCount, readAgent, send } from "../trades";
 
 const OPTIONS = {
@@ -22,10 +24,11 @@ const OPTIONS = {
   risk: { type: "string" },
   website: { type: "string" },
   source: { type: "string" },
+  market: { type: "string", multiple: true },
 } as const;
 
 type Opts = ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true }>>["values"];
-const DETAIL_FLAGS = ["description", "strategy", "risk", "website", "source"] as const;
+const DETAIL_FLAGS = ["description", "strategy", "risk", "website", "source", "market"] as const;
 const OPERATOR_GAS_FUNDING = parseEther("1"); // local only
 
 /** Percent string ("5", "2.5") -> basis points, validated against the contract cap. */
@@ -54,7 +57,9 @@ async function metadataFromArgs(opts: Opts, current?: AgentMetadata | null): Pro
         ...(opts.website !== undefined && { website: opts.website }),
         ...(opts.source !== undefined && { source: opts.source }),
       },
+      ...(opts.market !== undefined && { markets: opts.market.map(parseMarket) }),
     });
+    if (opts.market) await checkMarketsRoutable(meta.markets ?? []);
     for (const k of ["website", "source"] as const) {
       if (opts[k] && !meta.links?.[k]) throw new Error(`--${k} must be an http(s) URL under 200 characters`);
     }
@@ -87,12 +92,23 @@ async function metadataFromArgs(opts: Opts, current?: AgentMetadata | null): Pro
   return uri;
 }
 
+/** Warn about declared markets no approved DEX can route (the bot couldn't trade them). */
+async function checkMarketsRoutable(markets: NonNullable<AgentMetadata["markets"]>) {
+  const d = deployment();
+  const hubs = hubTokens([...d.markets, ...markets]);
+  for (const m of markets) {
+    const r = await bestRoute(publicClient, d.routers, m.base, m.asset, 10n ** 15n, hubs);
+    if (!r) console.log(`warning: no DEX route for ${formatMarket(m)} — buyers could hire you on it but your bot couldn't trade it`);
+  }
+}
+
 function printMetadata(meta: AgentMetadata | null) {
   if (!meta || isEmptyMetadata(meta)) return console.log('  details: none — add some with: zai update <id> --description "…" --risk medium');
   if (meta.strategy) console.log(`  strategy: ${meta.strategy}`);
   if (meta.risk) console.log(`  risk: ${meta.risk}`);
   if (meta.description) console.log(`  description: ${meta.description}`);
   for (const [k, v] of Object.entries(meta.links ?? {})) console.log(`  ${k}: ${v}`);
+  console.log(`  markets: ${(meta.markets ?? []).map(formatMarket).join(", ") || `${formatMarket(deployment().markets[0])} (default)`}`);
 }
 
 /** The operator pays gas for every open/close, so it needs native tokens. */
@@ -206,7 +222,8 @@ async function list(opts: Opts) {
     const a = await readAgent(i);
     if (me && a.seller !== me) continue;
     const meta = await loadMetadata(a.metadataURI).catch(() => null);
-    rows.push({ id: Number(a.id), name: a.name, fee: `${a.feeBps / 100}%`, active: a.active, strategy: meta?.strategy ?? "", risk: meta?.risk ?? "", seller: a.seller });
+    const markets = meta?.markets?.length ? meta.markets : [deployment().markets[0]];
+    rows.push({ id: Number(a.id), name: a.name, fee: `${a.feeBps / 100}%`, active: a.active, markets: markets.map(formatMarket).join(" "), strategy: meta?.strategy ?? "", risk: meta?.risk ?? "" });
   }
   console.log(me ? `agents owned by ${me} on ${network}` : `agents on ${network}`);
   if (rows.length) console.table(rows);

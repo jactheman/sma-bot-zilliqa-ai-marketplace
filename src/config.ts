@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPublicClient, createWalletClient, defineChain, getAddress, http, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ANVIL_KEYS, NETWORKS, type NetworkName } from "./networks";
+import { ANVIL_KEYS, NETWORKS, deploymentRouters, networkMarkets, networkTokens, parseMarkets, type Market, type NetworkName } from "./networks";
 
 export type Role = keyof typeof ANVIL_KEYS;
 
@@ -30,6 +30,10 @@ export interface ResolvedDeployment {
   baseToken: Address;
   assetToken: Address;
   agentId: bigint;
+  /** Every approved router, markets offered and known tokens (see src/networks.ts). */
+  routers: Address[];
+  markets: Market[];
+  tokens: Record<string, Address>;
 }
 
 let cached: ResolvedDeployment | undefined;
@@ -54,7 +58,13 @@ export function deployment(): ResolvedDeployment {
     baseToken: pick("BASE_TOKEN", "baseToken"),
     assetToken: pick("ASSET_TOKEN", "assetToken"),
     agentId: BigInt(process.env.AGENT_ID ?? json.agentId ?? 0),
+    routers: [],
+    markets: [],
+    tokens: {},
   };
+  cached.routers = deploymentRouters({ router: cached.router, routers: json.routers });
+  cached.markets = networkMarkets(network, { ...cached, markets: parseMarkets(json.markets) });
+  cached.tokens = networkTokens(network, { tokens: json.tokens });
   return cached;
 }
 

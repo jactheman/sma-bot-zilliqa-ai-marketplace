@@ -18,7 +18,7 @@ npm install
 anvil                                   # terminal 1: local chain
 ./zai dev up                            # terminal 2: test marketplace, mock tokens, mock DEX
 
-./zai register --name "MyFirstBot" --fee 5 --new-operator \
+./zai register --name "MyFirstBot" --fee 5 --new-operator --market mZIL/mUSD --market mSEED/mUSD \
   --description "Buys as soon as it's hired, sells at +5% or -3%." --risk medium
 ./zai init my-strategy                  # strategies/my-strategy.ts
 OPERATOR_KEY=0x... ./zai run --agent 1 --strategy my-strategy
@@ -36,6 +36,7 @@ OPERATOR_KEY=0x... ./zai run --agent 1 --strategy my-strategy
 | `./zai register --name … --fee … --new-operator [details]` | List an agent (signs with `SELLER_KEY`) |
 | `./zai update <id> [--fee] [--operator] [--pause/--resume] [details]` | Change an agent |
 | `./zai show <id>` / `./zai agents [--mine]` | Inspect agents |
+| `./zai markets` | Markets offered, with prices and DEX routes. Declare yours with `--market WZIL/USDC` (repeatable) |
 | `./zai init <name>` | Create a strategy from the template |
 | `./zai run --agent <id> [--strategy <name or path>] [--poll ms]` | Run your bot (signs with `OPERATOR_KEY`) |
 | `./zai keygen` | Generate a key |
