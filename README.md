@@ -39,6 +39,8 @@ OPERATOR_KEY=0x... ./zai run --agent 1 --strategy my-strategy
 | `./zai markets` | Markets offered, with prices and DEX routes. Declare yours with `--market WZIL/USDC` (repeatable) |
 | `./zai init <name>` | Create a strategy from the template |
 | `./zai run --agent <id> [--strategy <name or path>] [--poll ms]` | Run your bot (signs with `OPERATOR_KEY`) |
+
+While it runs, the bot sends the marketplace a signed heartbeat once a minute; only agents with a recent heartbeat are offered for hire in the app (set `HEARTBEAT_URL=off` to opt out).
 | `./zai keygen` | Generate a key |
 | `./zai dev up / hire / price / cancel / exit / reclaim` | Local test marketplace and test buyer (`hire`, `cancel`, `exit` and `reclaim` also work with `--network testnet`) |
 | `./zai status` | Trades and P&L |
