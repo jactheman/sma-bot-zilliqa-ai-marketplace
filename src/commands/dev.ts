@@ -14,7 +14,7 @@ import { toDataUri } from "../metadata";
 import { privateKeyToAccount } from "viem/accounts";
 import { ANVIL_KEYS } from "../networks";
 import { formatMarket, parseMarket, symbolOf } from "../markets";
-import { bestRoute, hubTokens } from "../routing";
+import { approvedHubs, bestRoute, hubTokens } from "../routing";
 import { fmt, readTrade, send } from "../trades";
 
 const artifact = (name: string) =>
@@ -58,8 +58,9 @@ async function up() {
   await call(router, routerAbi, "setRate", [zil, usd, parseUnits("0.02", 18)]);
   // mSEED only trades against mZIL, like SEED on testnet, so mSEED/mUSD needs a two-hop route.
   await call(router, routerAbi, "setRate", [seed, zil, parseUnits("0.8", 18)]);
-  const marketplace = await deploy("Marketplace", [deployer.account.address]);
+  const marketplace = await deploy("Marketplace", [deployer.account.address, 0n]); // no approval delay locally
   await call(marketplace, marketplaceAbi, "setRouter", [router, true]);
+  await call(marketplace, marketplaceAbi, "setHub", [zil, true]); // mSEED/mUSD routes through mZIL
   await call(usd, mockErc20Abi, "mint", [buyer, parseUnits("10000", 18)]);
 
   const receipt = await send(
@@ -133,7 +134,8 @@ async function exit(idArg: string | undefined) {
   const d = deployment();
   const t = await readTrade(id);
   if (t.status !== "Open") throw new Error(`trade #${id} is ${t.status}, not Open`);
-  const r = await bestRoute(publicClient, d.routers, t.assetToken, t.baseToken, t.assetAmount, hubTokens(d.markets));
+  const hubs = await approvedHubs(publicClient, d.marketplace, hubTokens(d.markets));
+  const r = await bestRoute(publicClient, d.routers, t.assetToken, t.baseToken, t.assetAmount, hubs);
   if (!r) throw new Error("no DEX route to sell this position right now");
   const quote = r.amountOut;
   await send(
