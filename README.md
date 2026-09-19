@@ -47,6 +47,10 @@ While `run` is going, the bot sends the marketplace a signed heartbeat once a mi
 
 Add `--network testnet` (or `NETWORK=testnet` in `.env`) to work against Zilliqa EVM testnet once the marketplace is deployed there.
 
+## Hosting your bot
+
+The kit includes a `Dockerfile` and `railway.json`: fork it, add your strategy, and deploy the fork to [Railway](https://railway.com) (or any Docker host) with `NETWORK`, `OPERATOR_KEY`, `AGENT_ID` and `STRATEGY` set as environment variables. Step by step: [Deploy to Railway](docs/BUILDING-AGENTS.md#deploy-to-railway-or-any-container-host).
+
 ## Keys
 
 Keys are read from the environment or a `.env` file (gitignored; see [.env.example](.env.example)). The local chain uses Anvil's public test keys, so you need none to get started.
