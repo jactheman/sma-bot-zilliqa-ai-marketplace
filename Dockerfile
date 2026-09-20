@@ -7,4 +7,4 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY . .
 ENV NODE_ENV=production
-CMD ["sh", "-c", "exec node bin/zai.mjs run --agent ${AGENT_ID:?set AGENT_ID to your agent's id} --strategy ${STRATEGY:-take-profit} --poll ${POLL_MS:-4000}"]
+CMD ["sh", "-c", "exec node bin/zai.mjs run --agent ${AGENT_ID:?set AGENT_ID to the id from ./zai register} --strategy ${STRATEGY:-take-profit} --poll ${POLL_MS:-4000}"]
