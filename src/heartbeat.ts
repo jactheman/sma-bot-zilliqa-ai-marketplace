@@ -14,15 +14,11 @@ import type { Hex } from "viem";
 /** How often a bot reports in. */
 export const HEARTBEAT_INTERVAL_MS = 60_000;
 /**
- * The server only stores a beat when the previous stored one is older than this, to stay inside
- * Cloudflare KV's free write quota (mirrored in functions/api/heartbeat.js).
+ * Default live window: agents are offered to buyers while their last stored heartbeat is younger
+ * than this. The server states the window it wants in each response (`window`), because its
+ * storage decides how often beats are persisted: 3 beats on D1, longer on the KV fallback.
  */
-export const PERSIST_EVERY_SEC = 240;
-/**
- * Agents are offered to buyers while their last stored heartbeat is younger than this: the
- * persist interval, plus one beat, plus slack. A stopped bot drops off the list within ~5-7 minutes.
- */
-export const LIVE_WINDOW_SEC = PERSIST_EVERY_SEC + HEARTBEAT_INTERVAL_MS / 1000 + 120;
+export const LIVE_WINDOW_SEC = 180;
 /** A heartbeat older or newer than this, by the server's clock, is rejected. */
 export const MAX_CLOCK_SKEW_SEC = 300;
 /** The web app's endpoint (same origin as the app). Bots use NETWORKS[network].heartbeat or HEARTBEAT_URL. */
@@ -71,6 +67,8 @@ export async function sendHeartbeat(
 export interface Liveness {
   ageSec: Map<string, number>;
   fetchedAt: number;
+  /** Seconds of age up to which an agent counts as live, as stated by the server. */
+  windowSec: number;
 }
 
 /** Read the last heartbeat of the given agents for a deployment. Throws when the endpoint is unavailable. */
@@ -81,18 +79,19 @@ export async function fetchLiveness(
   agentIds: readonly (bigint | number | string)[],
   timeoutMs = 8000,
 ): Promise<Liveness> {
-  if (!agentIds.length) return { ageSec: new Map(), fetchedAt: Date.now() };
+  if (!agentIds.length) return { ageSec: new Map(), fetchedAt: Date.now(), windowSec: LIVE_WINDOW_SEC };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const q = new URLSearchParams({ chainId: String(chainId), marketplace: marketplace.toLowerCase(), agents: agentIds.map(String).join(",") });
     const res = await fetch(`${url}?${q}`, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { now?: number; agents?: Record<string, number> };
+    const body = (await res.json()) as { now?: number; window?: number; agents?: Record<string, number> };
     if (typeof body?.now !== "number" || typeof body.agents !== "object" || body.agents === null) throw new Error("bad response");
     const ageSec = new Map<string, number>();
     for (const [id, at] of Object.entries(body.agents)) if (typeof at === "number") ageSec.set(id, Math.max(0, body.now - at));
-    return { ageSec, fetchedAt: Date.now() };
+    const windowSec = typeof body.window === "number" && body.window > 0 ? body.window : LIVE_WINDOW_SEC;
+    return { ageSec, fetchedAt: Date.now(), windowSec };
   } finally {
     clearTimeout(timer);
   }
@@ -102,5 +101,5 @@ export async function fetchLiveness(
 export function isLive(l: Liveness, agentId: bigint | number | string): boolean {
   const age = l.ageSec.get(String(agentId));
   if (age === undefined) return false;
-  return age + (Date.now() - l.fetchedAt) / 1000 <= LIVE_WINDOW_SEC;
+  return age + (Date.now() - l.fetchedAt) / 1000 <= l.windowSec;
 }
