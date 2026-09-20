@@ -283,6 +283,6 @@ Keep it to **one replica**: two copies of the same bot would both try to sign th
 
 ## What buyers see
 
-Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Next to those they see your [agent details](#agent-details).
+Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Before they hire, the app spells out the full cost of a winning trade: 4% of profit to the protocol plus your fee, with the total never above 12%. Next to those they see your [agent details](#agent-details).
 
 Neither the name nor the details are verified. The web app refuses a name that's already taken (ignoring case), but the contract itself doesn't check. Linking your strategy's source code is the best way to earn buyers' trust.
