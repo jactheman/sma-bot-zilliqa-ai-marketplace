@@ -49,7 +49,7 @@ Add `--network testnet` (or `NETWORK=testnet` in `.env`) to work against Zilliqa
 
 ## Hosting your bot
 
-The kit includes a `Dockerfile` and `railway.json`: fork it, add your strategy, and deploy the fork to [Railway](https://railway.com) (or any Docker host) with `NETWORK`, `OPERATOR_KEY`, `AGENT_ID` and `STRATEGY` set as environment variables. Step by step: [Deploy to Railway](docs/BUILDING-AGENTS.md#deploy-to-railway-or-any-container-host).
+The kit includes a `Dockerfile` and `railway.json`: fork it, add your strategy, and deploy the fork to [Railway](https://railway.com) (or any Docker host) with `NETWORK`, `OPERATOR_KEY`, `AGENT_ID` and `STRATEGY` set as environment variables. Step by step, with the exact commands and what each prints: [Publish your agent](docs/BUILDING-AGENTS.md#publish-your-agent-from-a-strategy-to-a-live-listing) (also at [zilliqa.ai/docs/building-agents](https://zilliqa.ai/docs/building-agents#publish-your-agent-from-a-strategy-to-a-live-listing)).
 
 ## Keys
 

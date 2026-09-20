@@ -235,50 +235,189 @@ What the contract guarantees, and what it relies on:
 
 Once the marketplace is live, you can also list, edit, pause and resume agents from the web app.
 
-## Going to testnet
+## Publish your agent: from a strategy to a live listing
 
-Once the marketplace is deployed on Zilliqa EVM testnet, `git pull` the kit to get its address. Then:
+This is the whole path, in order, with the exact commands and what each one prints. Budget about 30 minutes the first time. Steps 1–3 happen on your computer; steps 4–6 put the bot on Railway so it runs 24/7.
 
-1. Put your keys in `.env` (it's gitignored; see `.env.example`):
-   ```bash
-   NETWORK=testnet
-   SELLER_KEY=0x...      # your wallet
-   ```
-2. Fund your seller wallet with testnet ZIL from https://faucet.testnet.zilliqa.com, then register:
-   ```bash
-   ./zai register --name "MyBot" --fee 5 --new-operator --description "…" --risk medium
-   ```
-3. Send the new operator address some ZIL. It pays gas for every open and close.
-4. Run the bot somewhere always-on (a VPS, Fly.io, Railway), with the operator key in the host's secret store:
-   ```bash
-   NETWORK=testnet OPERATOR_KEY=<secret> ./zai run --agent <id> --strategy my-strategy
-   ```
-   Within a minute the app shows your agent as **live**. If it stays **offline**, check the bot's log for `heartbeat failed` — buyers can't hire an agent whose bot isn't reporting in.
+**You need:** Node 20.12+, git, a GitHub account, a free [Railway](https://railway.com) account, and a browser wallet such as MetaMask for the faucet.
 
-### Deploy to Railway (or any container host)
+### Step 1 — Get the kit and write your strategy
 
-The kit ships a `Dockerfile` and a `railway.json`, so a fork of it deploys as-is. Everything is configured with environment variables; `.env` is never copied into the image.
+```bash
+git clone https://github.com/jactheman/zilliqa-ai-agent-kit
+cd zilliqa-ai-agent-kit
+npm install
+./zai init my-strategy          # creates strategies/my-strategy.ts from the template
+```
 
-1. Fork the kit on GitHub, add your strategy under `strategies/`, commit and push. (`.env` is gitignored — never commit keys.)
-2. On [Railway](https://railway.com): **New Project → Deploy from GitHub repo** and pick your fork. Railway detects the `Dockerfile`. From the CLI instead: `railway init` then `railway up` in your checkout.
-3. In the service's **Variables**, set:
+Edit `strategies/my-strategy.ts`. It exports one `decide()` function; the sections above ([Writing a strategy](#writing-a-strategy)) explain what it receives and can return. Two ready-made examples live next to it: `take-profit.ts` (buys as soon as it's hired, exits at +10% / −5% / 1 hour) and `mean-reversion.ts`.
+
+Test it on the local chain first ([Quickstart](#quickstart-run-a-strategy-locally)) — hire your own agent, move the mock price, and watch it open and close. Nothing on testnet costs real money, but a local run turns bugs around in seconds.
+
+### Step 2 — Create two keys and fund them
+
+Your agent has two keys. Keep them separate.
+
+| Key | What it does | Where it lives |
+|---|---|---|
+| **Seller** | Lists the agent, edits it, receives your fee | Your own wallet, on your computer only |
+| **Operator** | Signs the bot's trades. It can only swap buyers' escrowed funds through approved DEXes, never withdraw them | Railway's secret store |
+
+```bash
+./zai keygen        # run it twice: once for the seller (if you don't want to use an existing wallet), once for the operator
+```
+
+Each run prints:
+
+```
+address:     0x1234…abcd
+private key: 0xabc…
+```
+
+Save both keys somewhere safe (a password manager). The kit never stores them.
+
+Fund them with testnet ZIL from the [Zilliqa testnet faucet](https://faucet.testnet.zilliqa.com): paste each address. The seller needs a little ZIL for the listing transaction; the operator pays gas for every open and close, so give it more (20 ZIL lasts a long time on testnet). To check a balance: `cast balance --rpc-url https://api.testnet.zilliqa.com -e 0xADDRESS`, or look it up on [otterscan.testnet.zilliqa.com](https://otterscan.testnet.zilliqa.com).
+
+Put the seller key in `.env` in the kit folder (the file is gitignored):
+
+```bash
+NETWORK=testnet
+SELLER_KEY=0x...        # seller private key
+```
+
+### Step 3 — Register the agent on testnet
+
+```bash
+./zai markets        # the pairs you can declare: WZIL/USDC, SEED/USDC
+./zai register \
+  --name "MyBot" \
+  --fee 8 \
+  --operator 0xOPERATOR_ADDRESS \
+  --market WZIL/USDC \
+  --description "Buys on a 21-bar breakout, sells at +6% or -4%." \
+  --strategy "Breakout" \
+  --risk medium \
+  --source https://github.com/YOU/YOUR-FORK
+```
+
+- `--fee` is your share of each profitable trade, 0 to 8 (percent). Buyers also pay 4% to the protocol; the app shows them both.
+- `--market` is repeatable. Declare only pairs your strategy actually handles.
+- `--source` should point at your fork (created in step 4); you can add it later with `./zai update <id> --source …`.
+
+It prints:
+
+```
+✓ listed agent #7 "MyBot" at 8% of profit on testnet
+  seller (earns fees): 0x1234…abcd
+  operator (bot key):  0x5678…ef01
+```
+
+**Write down the agent id** (`#7` here) — the bot needs it. Check the listing the way buyers will see it:
+
+```bash
+./zai show 7
+```
+
+It appears in the app at [zilliqa.ai/app](https://zilliqa.ai/app/) straight away, marked **offline** until the bot runs.
+
+Do a one-minute test run from your computer before deploying, using the operator key just this once:
+
+```bash
+OPERATOR_KEY=0x... ./zai run --agent 7 --strategy my-strategy --network testnet
+```
+
+You should see:
+
+```
+agent #7 "MyBot" (8% fee) on testnet, marketplace 0x8fD4…3B05
+operator 0x5678…ef01 · 1 approved DEX router(s)
+strategy: my-strategy — …
+trading 1 market(s): WZIL/USDC
+heartbeat: reporting live to https://zilliqa.ai/api/heartbeat every 60s
+```
+
+Refresh the app: your agent now shows **live**. Stop the bot with Ctrl-C (it goes back to **offline** within three minutes) and move on.
+
+### Step 4 — Put your fork on GitHub
+
+Railway builds from a git repository. Create an empty repository on GitHub (for example `my-zilliqa-bot`), then in the kit folder:
+
+```bash
+git remote rename origin upstream          # keep the kit as "upstream" so you can pull updates later
+git remote add origin git@github.com:YOU/my-zilliqa-bot.git
+git add strategies/my-strategy.ts
+git commit -m "Add my-strategy"
+git push -u origin main
+```
+
+`.env` is ignored by git and by the Docker build, so your keys never leave your machine this way. Double-check with `git status` that no `.env` is staged.
+
+### Step 5 — Deploy to Railway
+
+The kit already contains the `Dockerfile` and `railway.json` Railway needs. Everything else is environment variables.
+
+**Option A — from the dashboard**
+
+1. [railway.com](https://railway.com) → **New Project → Deploy from GitHub repo** → pick `my-zilliqa-bot`. Railway detects the Dockerfile and starts a build; it will fail the first time because the variables aren't set yet — that's expected.
+2. Open the service → **Variables** → add these five, then click **Deploy**:
 
    | Variable | Value |
    |---|---|
    | `NETWORK` | `testnet` |
-   | `OPERATOR_KEY` | your operator's private key (mark it sealed/secret) |
-   | `AGENT_ID` | the id `./zai register` printed |
-   | `STRATEGY` | your strategy's file name without `.ts`, e.g. `my-strategy` |
-   | `POLL_MS` | optional, default `4000` |
+   | `OPERATOR_KEY` | the operator private key from step 2 (use the *sealed* option so it can't be read back) |
+   | `AGENT_ID` | the id from step 3, e.g. `7` |
+   | `STRATEGY` | your file name without `.ts`, e.g. `my-strategy` |
+   | `POLL_MS` | `4000` |
 
-4. Deploy and open the logs. You should see the `agent #<id> "<name>"` line, then `heartbeat: reporting live` within a minute, and the app lists your agent as **live**.
+3. Under **Settings**, leave replicas at **1** and don't add a public domain — the bot needs no inbound traffic.
 
-Keep it to **one replica**: two copies of the same bot would both try to sign the same trades. The bot needs no public port, so ignore Railway's networking settings. The same image runs anywhere Docker does: `docker build -t my-bot . && docker run -e NETWORK=testnet -e OPERATOR_KEY=0x… -e AGENT_ID=1 -e STRATEGY=my-strategy my-bot`.
+**Option B — from the terminal**
+
+```bash
+npm install -g @railway/cli        # or: brew install railway
+railway login                      # opens the browser once
+railway init                       # creates a project; name it e.g. my-zilliqa-bot
+railway variables --set NETWORK=testnet --set OPERATOR_KEY=0x... \
+  --set AGENT_ID=7 --set STRATEGY=my-strategy --set POLL_MS=4000 --skip-deploys
+railway up --detach                # uploads this folder and builds the Dockerfile
+railway logs                       # follow the bot
+```
+
+`railway up` uploads your working folder directly, so with Option B the GitHub push in step 4 is only for keeping your code safe and for the `--source` link buyers see. To redeploy after a change, run `railway up --detach` again.
+
+### Step 6 — Confirm it's live
+
+In Railway's **Deployments → View logs** you should see the same five lines as in the local test run, ending with `heartbeat: reporting live`. Within a minute [zilliqa.ai/app](https://zilliqa.ai/app/) shows your agent as **live** and lists it in the hire form. Hire it yourself with a small amount to see a full cycle.
+
+Optional strategy parameters (`TAKE_PROFIT_BPS`, `STOP_LOSS_BPS`, `MAX_HOLD_SEC`, or any `param()` you define) are also plain Railway variables; change one and redeploy.
+
+### Day-to-day
+
+```bash
+./zai update 7 --fee 5                 # new trades only; open trades keep the fee they were hired at
+./zai update 7 --description "…"       # edit details
+./zai update 7 --pause                 # stop accepting trades (the app shows "paused")
+./zai update 7 --resume
+./zai update 7 --operator 0xNEW        # rotate the bot key: then update OPERATOR_KEY on Railway and redeploy
+git pull upstream main                 # pick up kit updates (new marketplace address, fixes), then redeploy
+```
+
+### If something's wrong
+
+| Symptom | Cause and fix |
+|---|---|
+| App shows **offline** although the bot is running | Look for `heartbeat failed (…)` in the logs. `403` — the operator key on Railway isn't the one registered for this agent id. `503` — the marketplace's storage is unavailable; the bot keeps trading and the app recovers when it does. |
+| `Agent #7's operator is 0x…, but OPERATOR_KEY belongs to 0x…` at start-up | Wrong key or wrong `AGENT_ID`. Fix the variable and redeploy, or `./zai update 7 --operator <address of the key you have>`. |
+| `Agent #7 doesn't exist on this marketplace` | The kit is pointing at an older marketplace address, or the id is wrong. `git pull upstream main`, then check `./zai agents`. |
+| `insufficient funds` when a trade should open | The operator ran out of ZIL for gas. Send it more from the faucet. |
+| `no route from … on any approved DEX` | You declared a market no approved DEX can route yet. Remove it with `./zai update 7 --market WZIL/USDC`. |
+| Trades stay **pending** for a long time while the agent is live | Your strategy hasn't returned `open` yet. That's fine if it's selective; the app tells buyers it's "waiting for signal". |
+| Railway build fails | The log shows the failing step. Most often: `package-lock.json` missing from the commit, or Node version — the image uses Node 22. |
 
 ### Key safety
 
 - **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
-- **If the operator key leaks,** rotate it right away with `update <id> --operator <new address>`.
+- **Never commit `.env`** or paste keys into GitHub issues or chat. If a key leaks, rotate it: `./zai update <id> --operator <new address>`, then update Railway.
 - **The marketplace owner can pause any agent** that misbehaves.
 
 ## What buyers see
