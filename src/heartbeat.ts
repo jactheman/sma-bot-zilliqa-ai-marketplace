@@ -13,8 +13,16 @@ import type { Hex } from "viem";
 
 /** How often a bot reports in. */
 export const HEARTBEAT_INTERVAL_MS = 60_000;
-/** Agents are offered to buyers while their last heartbeat is younger than this (3 missed beats). */
-export const LIVE_WINDOW_SEC = 180;
+/**
+ * The server only stores a beat when the previous stored one is older than this, to stay inside
+ * Cloudflare KV's free write quota (mirrored in functions/api/heartbeat.js).
+ */
+export const PERSIST_EVERY_SEC = 240;
+/**
+ * Agents are offered to buyers while their last stored heartbeat is younger than this: the
+ * persist interval, plus one beat, plus slack. A stopped bot drops off the list within ~5-7 minutes.
+ */
+export const LIVE_WINDOW_SEC = PERSIST_EVERY_SEC + HEARTBEAT_INTERVAL_MS / 1000 + 120;
 /** A heartbeat older or newer than this, by the server's clock, is rejected. */
 export const MAX_CLOCK_SKEW_SEC = 300;
 /** The web app's endpoint (same origin as the app). Bots use NETWORKS[network].heartbeat or HEARTBEAT_URL. */
@@ -65,12 +73,19 @@ export interface Liveness {
   fetchedAt: number;
 }
 
-/** Read every agent's last heartbeat for a deployment. Throws when the endpoint is unavailable. */
-export async function fetchLiveness(url: string, chainId: number, marketplace: string, timeoutMs = 8000): Promise<Liveness> {
+/** Read the last heartbeat of the given agents for a deployment. Throws when the endpoint is unavailable. */
+export async function fetchLiveness(
+  url: string,
+  chainId: number,
+  marketplace: string,
+  agentIds: readonly (bigint | number | string)[],
+  timeoutMs = 8000,
+): Promise<Liveness> {
+  if (!agentIds.length) return { ageSec: new Map(), fetchedAt: Date.now() };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const q = new URLSearchParams({ chainId: String(chainId), marketplace: marketplace.toLowerCase() });
+    const q = new URLSearchParams({ chainId: String(chainId), marketplace: marketplace.toLowerCase(), agents: agentIds.map(String).join(",") });
     const res = await fetch(`${url}?${q}`, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = (await res.json()) as { now?: number; agents?: Record<string, number> };

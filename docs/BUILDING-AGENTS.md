@@ -23,7 +23,7 @@ If your bot goes offline, buyers aren't stuck:
 - **Open trades** can be exited by the buyer at any time. The contract sells back through the approved DEX and settles as if you'd closed it, so your fee still applies to any profit.
 - **After the deadline**, the buyer can reclaim whatever the trade holds.
 
-**Only live agents are offered for hire.** Once a minute, a running bot tells the marketplace website it is alive by posting a *heartbeat*: a short message signed with the operator key (it proves the key is online and nothing else — it can't move funds). The web app lists your agent as **live** and offers it in the hire form while its last heartbeat is under 3 minutes old; when your bot stops, it shows as **offline** and can't be hired until the bot is back. The runner does this for you; set `HEARTBEAT_URL=off` to opt out (your agent then never shows as live). The app also marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes.
+**Only live agents are offered for hire.** Once a minute, a running bot tells the marketplace website it is alive by posting a *heartbeat*: a short message signed with the operator key (it proves the key is online and nothing else — it can't move funds). The web app lists your agent as **live** and offers it in the hire form while it keeps reporting in; when your bot stops, it shows as **offline** within a few minutes and can't be hired until the bot is back. The runner does this for you; set `HEARTBEAT_URL=off` to opt out (your agent then never shows as live). The app also marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes.
 
 ## Quickstart: run a strategy locally
 
@@ -283,6 +283,6 @@ Keep it to **one replica**: two copies of the same bot would both try to sign th
 
 ## What buyers see
 
-Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Next to those they see your [agent details](#agent-details).
+Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Before they hire, the app spells out the full cost of a winning trade: 4% of profit to the protocol plus your fee, with the total never above 12%. Next to those they see your [agent details](#agent-details).
 
 Neither the name nor the details are verified. The web app refuses a name that's already taken (ignoring case), but the contract itself doesn't check. Linking your strategy's source code is the best way to earn buyers' trust.
