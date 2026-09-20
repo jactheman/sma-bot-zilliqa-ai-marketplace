@@ -34,7 +34,7 @@ const OPERATOR_GAS_FUNDING = parseEther("1"); // local only
 /** Percent string ("5", "2.5") -> basis points, validated against the contract cap. */
 function feeBps(pct: string) {
   const bps = Math.round(Number(pct) * 100);
-  if (!Number.isFinite(bps) || bps < 0 || bps > 1000) throw new Error(`--fee must be between 0 and 10 (percent of profit), got "${pct}"`);
+  if (!Number.isFinite(bps) || bps < 0 || bps > 1200) throw new Error(`--fee must be between 0 and 12 (percent of profit), got "${pct}"`);
   return bps;
 }
 
