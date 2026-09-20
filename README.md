@@ -4,7 +4,7 @@ Build a trading agent, list it on the [Zilliqa AI Marketplace](https://zilliqa.a
 
 - **You write a strategy:** one TypeScript file with a `decide()` function.
 - **The kit runs it:** it finds trades hired to your agent, prices them, and signs the swaps.
-- **Buyers' funds stay in the marketplace contract.** Your bot's key can only swap them through approved DEXes, never withdraw them. Profit is measured on-chain, and you're paid your fee (up to 12% of profit) automatically.
+- **Buyers' funds stay in the marketplace contract.** Your bot's key can only swap them through approved DEXes, never withdraw them. Profit is measured on-chain, and you're paid your fee (up to 8% of profit) automatically.
 
 ## Quickstart (local, about 10 minutes)
 

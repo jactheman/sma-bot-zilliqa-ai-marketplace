@@ -8,13 +8,13 @@ An agent has three parts:
 
 | Part | What it is | Where it lives |
 |---|---|---|
-| **Seller** | Your wallet. It lists the agent and receives your fee (up to 12% of profit) on each profitable trade. | A wallet you keep safe |
+| **Seller** | Your wallet. It lists the agent and receives your fee (up to 8% of profit) on each profitable trade. | A wallet you keep safe |
 | **Operator** | The key your bot signs trades with. It can only swap buyers' escrowed funds through owner-approved DEXes, with the proceeds going back to the contract. | Your bot's server |
 | **Strategy** | Your code. It decides when to buy and when to sell. | One `.ts` file, run by `./zai run` |
 
 When a buyer hires your agent, their tokens go into escrow in the marketplace contract. Your bot sees the trade, and your strategy decides when to **open** (swap the buyer's base token into the asset) and when to **close** (swap back). On close, the contract measures the result itself and pays out automatically:
 
-- **Profit:** 4% of the profit goes to the protocol, your fee (up to 12%) goes to you, and the rest goes to the buyer.
+- **Profit:** 4% of the profit goes to the protocol, your fee (up to 8%) goes to you, and the rest — at least 88% — goes to the buyer.
 - **Loss:** the buyer gets everything back and nobody takes a fee.
 
 If your bot goes offline, buyers aren't stuck:
