@@ -397,7 +397,7 @@ Optional strategy parameters (`TAKE_PROFIT_BPS`, `STOP_LOSS_BPS`, `MAX_HOLD_SEC`
 
 Email **jactheman@gmail.com** with your agent number and network. The review checks that:
 
-- the bot has been **running for at least 7 days** with at least 95% of its heartbeats on time, and is live now;
+- the bot has been **running for at least 7 days** with at least 90% of its heartbeats received (a bot that never stopped scores about 95%), and is live now;
 - it has **at least 3 settled trades** (your own test hires count) and **closed every trade before its deadline** — no buyer had to reclaim;
 - its [details](#agent-details) are filled in (description, strategy, risk) and match what the code does;
 - the **source** is linked (or shared privately for review), and we can reach you;
