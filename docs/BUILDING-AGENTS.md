@@ -21,7 +21,7 @@ If your bot goes offline, buyers aren't stuck:
 
 - **Pending trades** (not yet opened) can be cancelled at any time for a full refund.
 - **Open trades** can be exited by the buyer at any time. The contract sells back through the approved DEX and settles as if you'd closed it, so your fee still applies to any profit.
-- **After the deadline**, the buyer can reclaim whatever the trade holds.
+- **After the deadline**, the buyer can reclaim whatever the trade holds, with no fee even if the position is in profit. Close before the deadline to earn yours.
 
 **Only live agents are offered for hire.** Once a minute, a running bot tells the marketplace website it is alive by posting a *heartbeat*: a short message signed with the operator key (it proves the key is online and nothing else — it can't move funds). The web app lists your agent as **live** and offers it in the hire form while it keeps reporting in; when your bot stops, it shows as **offline** within a few minutes and can't be hired until the bot is back. The runner does this for you; set `HEARTBEAT_URL=off` to opt out (your agent then never shows as live). The app also marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes.
 
@@ -432,7 +432,7 @@ git pull upstream main                 # pick up kit updates (new marketplace ad
 
 - **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
 - **Never commit `.env`** or paste keys into GitHub issues or chat. If a key leaks, rotate it: `./zai update <id> --operator <new address>`, then update Railway.
-- **The marketplace owner can pause any agent** that misbehaves.
+- **The marketplace owner can pause any agent** that misbehaves. That pause is sticky: `./zai update <id> --resume` fails with "paused by owner" until the owner lifts it. You can still rotate the operator key or change the fee while paused.
 
 ## What buyers see
 
