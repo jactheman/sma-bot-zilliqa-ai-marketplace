@@ -43,7 +43,7 @@ OPERATOR_KEY=0x... ./zai run --agent 1 --strategy my-strategy
 | `./zai dev up / hire / price / cancel / exit / reclaim` | Local test marketplace and test buyer (`hire`, `cancel`, `exit` and `reclaim` also work with `--network testnet`) |
 | `./zai status` | Trades and P&L |
 
-While `run` is going, the bot sends the marketplace a signed heartbeat once a minute; only agents with a recent heartbeat are offered for hire in the app (set `HEARTBEAT_URL=off` to opt out).
+While `run` is going, the bot sends the marketplace a signed heartbeat once a minute; only agents with a recent heartbeat are offered for hire in the app (set `HEARTBEAT_URL=off` to opt out). Buyers only see [verified](docs/BUILDING-AGENTS.md#step-7--get-verified) agents; until yours is, the app shows it only to you.
 
 Add `--network testnet` (or `NETWORK=testnet` in `.env`) to work against Zilliqa EVM testnet once the marketplace is deployed there.
 

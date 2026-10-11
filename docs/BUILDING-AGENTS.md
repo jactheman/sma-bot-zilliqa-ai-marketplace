@@ -21,9 +21,11 @@ If your bot goes offline, buyers aren't stuck:
 
 - **Pending trades** (not yet opened) can be cancelled at any time for a full refund.
 - **Open trades** can be exited by the buyer at any time. The contract sells back through the approved DEX and settles as if you'd closed it, so your fee still applies to any profit.
-- **After the deadline**, the buyer can reclaim whatever the trade holds.
+- **After the deadline**, the buyer can reclaim whatever the trade holds, with no fee even if the position is in profit. Close before the deadline to earn yours.
 
 **Only live agents are offered for hire.** Once a minute, a running bot tells the marketplace website it is alive by posting a *heartbeat*: a short message signed with the operator key (it proves the key is online and nothing else — it can't move funds). The web app lists your agent as **live** and offers it in the hire form while it keeps reporting in; when your bot stops, it shows as **offline** within a few minutes and can't be hired until the bot is back. The runner does this for you; set `HEARTBEAT_URL=off` to opt out (your agent then never shows as live). The app also marks an agent **may be offline** when a hired trade sits unopened for more than 5 minutes.
+
+**Buyers only see verified agents.** Anyone can list an agent on-chain, but zilliqa.ai shows it to buyers only after the marketplace team has reviewed it — see [Step 7](#step-7--get-verified). Until then the app shows it only to you (with your seller wallet connected), marked **awaiting verification**, and you can hire it yourself to test it.
 
 ## Quickstart: run a strategy locally
 
@@ -237,7 +239,7 @@ Once the marketplace is live, you can also list, edit, pause and resume agents f
 
 ## Publish your agent: from a strategy to a live listing
 
-This is the whole path, in order, with the exact commands and what each one prints. Budget about 30 minutes the first time. Steps 1–3 happen on your computer; steps 4–6 put the bot on Railway so it runs 24/7.
+This is the whole path, in order, with the exact commands and what each one prints. Budget about 30 minutes the first time. Steps 1–3 happen on your computer; steps 4–6 put the bot on Railway so it runs 24/7; step 7 gets it in front of buyers.
 
 **You need:** Node 20.12+, git, a GitHub account, a free [Railway](https://railway.com) account, and a browser wallet such as MetaMask for the faucet.
 
@@ -387,9 +389,21 @@ railway logs                       # follow the bot
 
 ### Step 6 — Confirm it's live
 
-In Railway's **Deployments → View logs** you should see the same five lines as in the local test run, ending with `heartbeat: reporting live`. Within a minute [zilliqa.ai/app](https://zilliqa.ai/app/) shows your agent as **live** and lists it in the hire form. Hire it yourself with a small amount to see a full cycle.
+In Railway's **Deployments → View logs** you should see the same five lines as in the local test run, ending with `heartbeat: reporting live`. Within a minute [zilliqa.ai/app](https://zilliqa.ai/app/) shows your agent as **live** — to you, with your seller wallet connected, until it's verified. Hire it yourself with a small amount to see a full cycle (or from the terminal: `./zai dev hire 10 --agent 7 --network testnet`).
 
 Optional strategy parameters (`TAKE_PROFIT_BPS`, `STOP_LOSS_BPS`, `MAX_HOLD_SEC`, or any `param()` you define) are also plain Railway variables; change one and redeploy.
+
+### Step 7 — Get verified
+
+Email **jactheman@gmail.com** with your agent number and network. The review checks that:
+
+- the bot has been **running for at least 7 days** with at least 90% of its heartbeats received (a bot that never stopped scores about 95%), and is live now;
+- it has **at least 3 settled trades** (your own test hires count) and **closed every trade before its deadline** — no buyer had to reclaim;
+- its [details](#agent-details) are filled in (description, strategy, risk) and match what the code does;
+- the **source** is linked (or shared privately for review), and we can reach you;
+- the operator key is **not** the seller key (see [Key safety](#key-safety)).
+
+Once approved, your agent appears to every buyer within a minute. Verification is for this marketplace address; if the marketplace is redeployed, agents are reviewed again. An agent that misbehaves can lose its verification.
 
 ### Day-to-day
 
@@ -418,10 +432,10 @@ git pull upstream main                 # pick up kit updates (new marketplace ad
 
 - **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
 - **Never commit `.env`** or paste keys into GitHub issues or chat. If a key leaks, rotate it: `./zai update <id> --operator <new address>`, then update Railway.
-- **The marketplace owner can pause any agent** that misbehaves.
+- **The marketplace owner can pause any agent** that misbehaves. That pause is sticky: `./zai update <id> --resume` fails with "paused by owner" until the owner lifts it. You can still rotate the operator key or change the fee while paused.
 
 ## What buyers see
 
 Buyers see your agent's name, fee, number of settled trades and cumulative buyer P&L, all read straight from the chain, so there's no way to fake a track record. Before they hire, the app spells out the full cost of a winning trade: 4% of profit to the protocol plus your fee, with the total never above 12%. Next to those they see your [agent details](#agent-details).
 
-Neither the name nor the details are verified. The web app refuses a name that's already taken (ignoring case), but the contract itself doesn't check. Linking your strategy's source code is the best way to earn buyers' trust.
+The app only lists [verified](#step-7--get-verified) agents, so a buyer only sees agents that passed review. The review covers your bot's uptime, trade record, details and source; it doesn't guarantee profits. The web app refuses a name that's already taken (ignoring case), but the contract itself doesn't check. Linking your strategy's source code is the best way to earn buyers' trust.
