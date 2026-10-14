@@ -143,11 +143,13 @@ These rules apply whatever your strategy returns:
 - **Best route:** every swap uses the best quote across approved DEXes, directly or through one middle token.
 - **Declared markets only:** it opens trades only on markets your agent declares.
 - **Slippage limit:** every swap sets a minimum output 1% below the quote (`SLIPPAGE_BPS`). The contract itself rejects any operator swap whose minimum is more than 3% below the router's own quote.
+- **No thin pools:** it won't open a trade whose swap would move the pool by more than 3% (`MAX_PRICE_IMPACT_BPS`). In a pool that thin the quote floor can't protect the buyer: anyone can push the price before the swap and pocket the difference. The trade stays pending for the buyer to cancel, with the reason in your logs.
 - **No late opens:** a pending trade isn't opened within 120 seconds of its deadline (`DEADLINE_BUFFER_SEC`).
 - **Buyer exits are handled:** if a buyer exits an open trade themselves, the runner sees it settled and stops tracking it.
 - **Always closes before the deadline:** an open trade is closed before the buyer could reclaim it, so buyers get settled in base tokens, not handed back the asset.
 - **Startup checks:** the runner refuses to start if `OPERATOR_KEY` isn't your agent's operator, and warns if the agent is paused.
-- **Error isolation:** an error on one trade is logged and doesn't stop the others.
+- **Error isolation:** an error on one trade is logged and doesn't stop the others; the failing trade is retried with a growing pause (10 s doubling to 60 s) rather than every tick.
+- **Your strategy never holds the key.** `decide` runs in a worker thread (`src/strategy-sandbox.ts`) with no access to the runner's wallet and with every environment variable whose name contains `KEY`, `SECRET`, `PASSWORD`, `PRIVATE`, `RPC_URL` or `RAILWAY` removed. Only plain data crosses: the position and market in, your decision out. Strategy parameters read with `param()` still work; name them anything else. A `decide` that takes longer than 10 s (`STRATEGY_TIMEOUT_MS`) or throws is logged, and the worker is restarted on the next call.
 
 ### Tips
 
@@ -162,6 +164,7 @@ A market is a pair written **ASSET/BASE**. For example, `WZIL/USDC` means buyers
 
 - `./zai markets` lists the markets on a network, with their current price and the DEX route.
 - **Your agent declares the markets it trades** with `--market` (repeatable) on `register` or `update`. Buyers can only hire it on those. If you don't declare any, your agent trades only the marketplace's default market.
+- **Only approved tokens.** The marketplace owner approves the tokens trades may use, with a minimum hire size per base token, and `proposeTrade` reverts with `token not allowed` or `below minimum` otherwise. `register` and `update` warn when a market you declare uses a token that isn't approved yet. Ask for a token to be approved the same way you ask to be [verified](#step-7--get-verified).
 - **Routing is automatic.** The runner quotes every approved DEX, both directly and through each middle token, and uses the best route. For example, SEED/USDC on testnet goes USDC → WZIL → SEED. Each extra hop costs another swap fee.
 - **Stay safe on markets you don't trade.** If a buyer hires you on a market you don't declare, the runner won't open it. The trade stays pending for the buyer to cancel.
 - **Your strategy sees the market.** `position.baseToken` and `position.assetToken` tell it which market a trade is on. `market.price` and `market.history` are for that market.
@@ -222,7 +225,8 @@ What the contract guarantees, and what it relies on:
 - **Operators can't send funds anywhere.** Swaps go through a router the owner approved, the output always returns to the contract, and the contract measures what it actually received.
 - **Operators can't accept a bad fill.** Every operator swap must accept at least the router's own quote minus 3%. Buyers exiting choose their own floor.
 - **Routes are restricted.** Multi-hop routes may only pass through owner-approved "hub" tokens, at most two per route.
-- **Approvals are time-delayed.** A newly approved router or hub only becomes usable after the marketplace's `approvalDelay`, and revoking is immediate. Anyone can see a pending approval on-chain (`RouterAllowed` / `HubAllowed` events, `routerActiveFrom`) and exit before it goes live.
+- **Tokens are allowlisted.** A trade's base and asset must both be owner-approved tokens (`setToken`, `allowedTokens`), and the escrow must meet the base token's minimum. Nobody can hire an agent into a token the owner never vetted, and nobody can spam a bot with dust trades. Trades already proposed settle normally if a token is later revoked.
+- **Approvals are time-delayed.** A newly approved router, hub or token only becomes usable after the marketplace's `approvalDelay`, and revoking is immediate. Anyone can see a pending approval on-chain (`RouterAllowed` / `HubAllowed` / `TokenAllowed` events, `routerActiveFrom`) and exit before it goes live.
 - **What it relies on:** routers are trusted. A malicious router approved by the owner could, once its delay passes, pay out less than it takes. That's why the owner key should be a multisig on mainnet, with a delay of days.
 
 ## Managing your agent
@@ -403,7 +407,7 @@ Email **jactheman@gmail.com** with your agent number and network. The review che
 - the **source** is linked (or shared privately for review), and we can reach you;
 - the operator key is **not** the seller key (see [Key safety](#key-safety)).
 
-Once approved, your agent appears to every buyer within a minute. Verification is for this marketplace address; if the marketplace is redeployed, agents are reviewed again. An agent that misbehaves can lose its verification.
+Once approved, your agent appears to every buyer within a minute. Verification is for this marketplace address and **for the details that were reviewed**: the list pins a hash of your agent's `metadataURI`. If you change your details afterwards (`zai update` with any details flag, or the app's edit form), including the markets your bot trades, buyers stop seeing your agent and you see **details changed since verification** instead. Email again to be re-reviewed. If the marketplace is redeployed, agents are reviewed again. An agent that misbehaves can lose its verification.
 
 ### Day-to-day
 
@@ -432,6 +436,7 @@ git pull upstream main                 # pick up kit updates (new marketplace ad
 
 - **Never reuse the seller key as the operator.** A leaked operator key can make bad trades but can't take funds. A leaked seller key gives away your fee income and control of the agent.
 - **Never commit `.env`** or paste keys into GitHub issues or chat. If a key leaks, rotate it: `./zai update <id> --operator <new address>`, then update Railway.
+- **On a server, keep keys in environment variables, not a `.env` file.** Your strategy runs without the key in its environment, but any code on the host can still read files. Railway's sealed variables are the right place.
 - **The marketplace owner can pause any agent** that misbehaves. That pause is sticky: `./zai update <id> --resume` fails with "paused by owner" until the owner lifts it. You can still rotate the operator key or change the fee while paused.
 
 ## What buyers see

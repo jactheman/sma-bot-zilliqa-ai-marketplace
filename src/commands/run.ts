@@ -7,13 +7,15 @@
  *   zai run --agent 1 --strategy ./my-bot.ts        # any file
  *
  * The runner, not the strategy, owns safety: it only trades the markets the agent declares,
- * routes every swap through the best approved DEX path with a slippage limit, never opens a
- * trade near its deadline, and always closes before the buyer can reclaim. The contract
- * additionally limits this key to swapping escrowed funds through approved routers.
+ * routes every swap through the best approved DEX path with a slippage limit, refuses to open
+ * into a pool the hire would move more than MAX_PRICE_IMPACT_BPS, never opens a trade near its
+ * deadline, and always closes before the buyer can reclaim. The strategy runs in a worker thread
+ * without the operator key (src/strategy-sandbox.ts), so none of this depends on its good
+ * behaviour. The contract additionally limits this key to swapping escrowed funds through
+ * approved routers.
  */
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { erc20Abi, type Address } from "viem";
 import { marketplaceAbi } from "../abi";
@@ -21,13 +23,23 @@ import { chain, deployment, kitPath, network, publicClient, requireMarketplace, 
 import { HEARTBEAT_INTERVAL_MS, sendHeartbeat } from "../heartbeat";
 import { loadMetadata } from "../metadata";
 import { networkHeartbeat, type Market as TradingMarket } from "../networks";
-import { approvedHubs, bestRoute, hasMarket, hubTokens, type Route } from "../routing";
+import { approvedHubs, bestRoute, hasMarket, hubTokens, priceImpactBps, type Route } from "../routing";
 import type { Decision, Market, Position, PricePoint, Strategy } from "../strategy";
+import { loadStrategyInWorker, type SandboxedStrategy } from "../strategy-sandbox";
 import { fmt, readTrade, tradeCount, type Trade } from "../trades";
 
 let POLL_MS = Number(process.env.POLL_MS ?? 2000);
 const SLIPPAGE_BPS = BigInt(process.env.SLIPPAGE_BPS ?? 100); // 1%
 const DEADLINE_BUFFER_SEC = BigInt(process.env.DEADLINE_BUFFER_SEC ?? 120);
+/**
+ * Don't open a trade whose swap would move the pool by more than this. In a pool that thin the
+ * contract's quote floor can't protect the buyer: anyone can push the price before the swap and
+ * take the difference, and the position would lose the same again on the way out.
+ */
+const MAX_PRICE_IMPACT_BPS = Number(process.env.MAX_PRICE_IMPACT_BPS ?? 300); // 3%
+/** After an error on a trade, wait this long before touching it again, doubling up to the max. */
+const RETRY_MIN_MS = 10_000;
+const RETRY_MAX_MS = 60_000;
 const METADATA_REFRESH_MS = 60_000;
 const HISTORY_MAX = 1000;
 /** Where to report liveness: HEARTBEAT_URL (or "off"), else the network's endpoint, else nowhere (local). */
@@ -43,6 +55,7 @@ let tokenNames: Record<string, Address> = {};
 const watching = new Set<bigint>();
 const openedAt = new Map<bigint, bigint>();
 const lastNote = new Map<bigint, string>();
+const retry = new Map<bigint, { at: number; delayMs: number }>();
 const history = new Map<string, PricePoint[]>();
 const decimals = new Map<string, number>();
 let scanned = 0n;
@@ -64,14 +77,12 @@ const log = (id: bigint | null, msg: string) =>
 // Strategy loading
 // ---------------------------------------------------------------------------
 
-async function loadStrategy(spec: string): Promise<Strategy> {
+/** Resolve the strategy file and load it in a worker thread, away from OPERATOR_KEY. */
+async function loadStrategy(spec: string): Promise<SandboxedStrategy> {
   const isPath = /[\\/]/.test(spec) || /\.[cm]?[jt]s$/.test(spec);
   const file = isPath ? resolve(process.cwd(), spec) : kitPath(`strategies/${spec}.ts`);
   if (!existsSync(file)) throw new Error(`Strategy not found: ${file}`);
-  const mod = await import(pathToFileURL(file).href);
-  const s = (mod.default ?? mod.strategy) as Strategy | undefined;
-  if (!s || typeof s.decide !== "function") throw new Error(`${file} must default-export defineStrategy({ name, decide })`);
-  return s;
+  return loadStrategyInWorker(file);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +198,15 @@ async function act(strategy: Strategy, t: Trade, now: bigint) {
   else decision = await strategy.decide(pos, market);
 
   if (decision.action === "open" && pos.phase === "pending") {
-    const r = await route(t.baseToken, t.assetToken, t.amountIn);
+    const q = await priceImpactBps(publicClient, routers, t.baseToken, t.assetToken, t.amountIn, hubs());
+    if (!q) throw new Error(`no route from ${t.baseToken} to ${t.assetToken} on any approved DEX`);
+    if (q.impactBps > MAX_PRICE_IMPACT_BPS) {
+      const note = `pending: a ${fmt(t.amountIn)} hire would move the pool ${q.impactBps / 100}% (limit ${MAX_PRICE_IMPACT_BPS / 100}%, MAX_PRICE_IMPACT_BPS) — too thin to trade safely, leaving it for the buyer to cancel`;
+      if (lastNote.get(t.id) !== note) log(t.id, note);
+      lastNote.set(t.id, note);
+      return;
+    }
+    const r = q.route;
     const via = r.path.length > 2 ? ` via ${r.path.length - 2} hop(s)` : "";
     log(t.id, `opening${decision.note ? ` (${decision.note})` : ""}: ${fmt(t.amountIn)} base -> ~${fmt(r.amountOut)} asset${via}`);
     await send("openPosition", t, r);
@@ -195,8 +214,11 @@ async function act(strategy: Strategy, t: Trade, now: bigint) {
     lastNote.delete(t.id);
     log(t.id, "position open");
   } else if (decision.action === "close" && pos.phase === "open") {
+    const q = await priceImpactBps(publicClient, routers, t.assetToken, t.baseToken, t.assetAmount, hubs());
+    if (!q) throw new Error(`no route from ${t.assetToken} to ${t.baseToken} on any approved DEX`);
+    if (q.impactBps > MAX_PRICE_IMPACT_BPS) log(t.id, `warning: closing moves the pool ${q.impactBps / 100}% — thin liquidity; closing anyway so the buyer gets base back`);
     log(t.id, `closing on ${decision.reason} at ${pos.pnlBps / 100}%`);
-    await send("closePosition", t, await route(t.assetToken, t.baseToken, t.assetAmount));
+    await send("closePosition", t, q.route);
     const settled = await readTrade(t.id);
     const profit = settled.amountOut - settled.amountIn;
     log(t.id, `settled: ${fmt(settled.amountOut)} base back (${profit >= 0n ? "+" : "-"}${fmt(profit < 0n ? -profit : profit)})`);
@@ -213,6 +235,7 @@ function forget(id: bigint) {
   watching.delete(id);
   openedAt.delete(id);
   lastNote.delete(id);
+  retry.delete(id);
 }
 
 async function tick(strategy: Strategy) {
@@ -246,10 +269,15 @@ async function tick(strategy: Strategy) {
   await samplePrices(pairs, now);
 
   for (const t of trades) {
+    const r = retry.get(t.id);
+    if (r && Date.now() < r.at) continue; // backing off after an error; others aren't held up
     try {
       await act(strategy, t, now);
+      retry.delete(t.id);
     } catch (err) {
-      log(t.id, `error: ${(err as Error).message.split("\n")[0]}`);
+      const delayMs = Math.min(RETRY_MAX_MS, r ? r.delayMs * 2 : RETRY_MIN_MS);
+      retry.set(t.id, { at: Date.now() + delayMs, delayMs });
+      log(t.id, `error: ${(err as Error).message.split("\n")[0]} — retrying in ${Math.round(delayMs / 1000)}s`);
     }
   }
 }
@@ -316,7 +344,7 @@ export default async function run(_cmd: string, args: string[]) {
   const agent = await checkAgent();
   log(null, `agent #${agentId} "${agent.name}" (${agent.feeBps / 100}% fee) on ${network}, marketplace ${marketplace}`);
   log(null, `operator ${wallet.account.address} · ${routers.length} approved DEX router(s)`);
-  log(null, `strategy: ${strategy.name}${strategy.describe ? ` — ${strategy.describe()}` : ""}`);
+  log(null, `strategy: ${strategy.name}${strategy.describe ? ` — ${strategy.describe()}` : ""} (in a worker thread, without the operator key)`);
   if (!HEARTBEAT_URL || HEARTBEAT_URL === "off") log(null, "heartbeat: off — this agent won't be offered to buyers as live");
   for (;;) {
     try {

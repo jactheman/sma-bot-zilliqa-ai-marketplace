@@ -6,7 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { marketplaceAbi } from "../abi";
 import { deployment, network, publicClient, requireMarketplace, walletFor } from "../config";
 import { checkMetadataUri, isEmptyMetadata, loadMetadata, sanitizeMetadata, toDataUri, type AgentMetadata } from "../metadata";
-import { formatMarket, parseMarket } from "../markets";
+import { formatMarket, parseMarket, symbolOf } from "../markets";
 import { approvedHubs, bestRoute, hubTokens } from "../routing";
 import { agentCount, readAgent, send } from "../trades";
 
@@ -92,11 +92,30 @@ async function metadataFromArgs(opts: Opts, current?: AgentMetadata | null): Pro
   return uri;
 }
 
-/** Warn about declared markets no approved DEX can route (the bot couldn't trade them). */
+/**
+ * Warn about declared markets buyers couldn't actually hire on: a token the marketplace owner
+ * hasn't approved (proposeTrade reverts with "token not allowed"), or a pair no approved DEX can
+ * route (the bot couldn't trade it).
+ */
 async function checkMarketsRoutable(markets: NonNullable<AgentMetadata["markets"]>) {
   const d = deployment();
   const hubs = await approvedHubs(publicClient, d.marketplace, hubTokens([...d.markets, ...markets]));
+  const allowed = new Map<string, boolean>();
+  const isAllowed = async (token: `0x${string}`) => {
+    const key = token.toLowerCase();
+    if (!allowed.has(key)) {
+      allowed.set(key, await publicClient
+        .readContract({ address: d.marketplace, abi: marketplaceAbi, functionName: "allowedTokens", args: [token] })
+        .catch(() => true)); // an older marketplace without an allowlist accepts every token
+    }
+    return allowed.get(key)!;
+  };
   for (const m of markets) {
+    for (const token of [m.base, m.asset]) {
+      if (!(await isAllowed(token))) {
+        console.log(`warning: ${symbolOf(token)} isn't an approved token on this marketplace — buyers can't hire you on ${formatMarket(m)} until the owner approves it`);
+      }
+    }
     const r = await bestRoute(publicClient, d.routers, m.base, m.asset, 10n ** 15n, hubs);
     if (!r) console.log(`warning: no DEX route for ${formatMarket(m)} — buyers could hire you on it but your bot couldn't trade it`);
   }

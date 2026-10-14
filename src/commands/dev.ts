@@ -61,12 +61,15 @@ async function up() {
   const marketplace = await deploy("Marketplace", [deployer.account.address, 0n]); // no approval delay locally
   await call(marketplace, marketplaceAbi, "setRouter", [router, true]);
   await call(marketplace, marketplaceAbi, "setHub", [zil, true]); // mSEED/mUSD routes through mZIL
+  await call(marketplace, marketplaceAbi, "setToken", [usd, true, parseUnits("1", 18)]); // hires are at least 1 mUSD
+  await call(marketplace, marketplaceAbi, "setToken", [zil, true, 0n]);
+  await call(marketplace, marketplaceAbi, "setToken", [seed, true, 0n]);
   await call(usd, mockErc20Abi, "mint", [buyer, parseUnits("10000", 18)]);
 
   const receipt = await send(
     await seller.writeContract({
       address: marketplace, abi: marketplaceAbi, functionName: "listAgent",
-      args: ["MomentumBot", operator, 1000, DEMO_METADATA],
+      args: ["MomentumBot", operator, 800, DEMO_METADATA], // 8% of profit (the cap)
     }),
   );
   const [ev] = parseEventLogs({ abi: marketplaceAbi, eventName: "AgentListed", logs: receipt.logs });
